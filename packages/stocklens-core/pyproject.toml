@@ -1,0 +1,22 @@
+[project]
+name = "stocklens-core"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "sqlalchemy>=2.0.50,<2.1",
+    "pydantic-settings>=2.14",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9",
+    "mypy>=2.1",
+    "pytest-cov>=6",
+]
+
+[build-system]
+requires = ["uv_build"]
+build-backend = "uv_build"
+
+[tool.uv]
+package = true

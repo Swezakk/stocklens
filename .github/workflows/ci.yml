@@ -5,8 +5,8 @@ on:
     branches: [main]
   pull_request:
 
-# Конвейер расширяется вместе с кодом: mypy и pytest добавляются
-# с первым пакетом (stocklens-core), сборка Docker-образов — с первым сервисом.
+# Конвейер расширяется вместе с кодом: сборка Docker-образов
+# добавляется с первым сервисом.
 jobs:
   lint:
     name: Lint (ruff)
@@ -23,3 +23,27 @@ jobs:
 
       - name: ruff format check
         run: uvx ruff format --check .
+
+  core:
+    name: stocklens-core (pytest + mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: uv sync
+        run: uv sync --project packages/stocklens-core
+
+      - name: pytest (coverage >= 50%)
+        run: >
+          uv run --project packages/stocklens-core
+          pytest packages/stocklens-core/tests
+          --cov=stocklens_core --cov-fail-under=50
+
+      - name: mypy strict
+        run: >
+          uv run --project packages/stocklens-core
+          mypy packages/stocklens-core/src packages/stocklens-core/tests

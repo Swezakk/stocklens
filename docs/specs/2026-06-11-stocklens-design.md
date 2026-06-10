@@ -155,7 +155,7 @@ stocklens/
 | `portfolio_positions` | `security_id`, `quantity`, `avg_price`, `opened_at` | один пользователь |
 | `predictions` | `security_id`, `predicted_for`, `horizon_days`, `kind`, `value`, `model_version`, `created_at` | kind: `StrEnum` volatility/trend; хранение прогнозов для страницы «прогноз vs факт» |
 | `collector_runs` | `source`, `started_at`, `finished_at`, `status`, `records_added`, `error_message` | status: `StrEnum` success/partial/failed; основа страницы мониторинга |
-| `bot_subscriptions` | `chat_id`, `kind`, `params` (jsonb) | подписки на алерты |
+| `bot_subscriptions` | `chat_id`, `kind`, `params` (jsonb) | подписки на алерты; kind: `StrEnum` sentiment_spike/volatility_regime/dividend_upcoming/price_level (типы алертов из §11) |
 
 Все статусы и типы — через `StrEnum` (хардкод строк в логике запрещён).
 

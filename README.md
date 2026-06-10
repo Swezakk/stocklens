@@ -30,10 +30,10 @@
 
 ## Статус
 
-Репозиторий на этапе bootstrap: утверждённая дизайн-спека, конфигурация качества
-(ruff, mypy, pre-commit, CI). Реализация идёт по фазам:
+Утверждённая дизайн-спека и конфигурация качества (ruff, mypy, pre-commit, CI)
+на месте. Реализация идёт по фазам:
 
-1. `packages/stocklens-core` — модели данных, enum'ы, настройки
+1. `packages/stocklens-core` — модели данных, enum'ы, настройки — **готово**
 2. Alembic-миграции + PostgreSQL в Compose
 3. `services/ingestor` — сбор MOEX
 4. RSS + sentiment, ЦБ РФ

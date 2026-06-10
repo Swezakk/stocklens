@@ -78,7 +78,8 @@ mypy strict (все сервисы).
 - **Идемпотентность:** все записи сборщиков — upsert по натуральному ключу
   (`(security_id, trade_date)`, `url`, …). Повторный запуск любой задачи безопасен.
 - **Статусы и типы** — только `StrEnum` из `stocklens-core` (`CollectorRunStatus`,
-  `SentimentLabel`, `PredictionKind`); строковые литералы в логике запрещены.
+  `SentimentLabel`, `PredictionKind`, `Currency`, `AlertKind`); строковые литералы
+  в логике запрещены.
 - **MOEX — вежливый клиент:** ≤1 запрос/сек, retry с экспоненциальным backoff,
   каждый запуск сборщика журналируется в `collector_runs` (ошибка одного источника
   не валит остальные — статус `partial`).
@@ -135,7 +136,13 @@ Conventional Commits: `type(scope)` на английском, описание 
 
 Раздел отражает реальное состояние репозитория и расширяется вместе с кодом.
 
-- Сейчас в репозитории только документация и CI (ruff по мере появления кода).
+Все команды запускаются из корня репозитория: mypy и pytest подхватывают конфиг
+из корневого `pyproject.toml`, версия Python пиннится `.python-version` (3.12).
+
+- `uv sync --project packages/stocklens-core` — окружение пакета core.
+- `uv run --project packages/stocklens-core pytest packages/stocklens-core/tests` — тесты core.
+- `uv run --project packages/stocklens-core mypy packages/stocklens-core/src packages/stocklens-core/tests` — типизация core.
+- `uvx ruff check .` / `uvx ruff format --check .` — линт всего репозитория.
 - Целевой набор после появления сервисов: `docker compose up --build` (весь стек),
-  `uv sync` / `uv run pytest` / `uv run ruff check` / `uv run mypy` (внутри сервиса),
+  аналогичные `uv … --project services/<имя>` команды на сервис,
   `uv run alembic upgrade head` (миграции, из корня).

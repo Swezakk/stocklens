@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# uv
+# (uv.lock коммитится — воспроизводимость)
+
+# Tooling caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# ML artifacts (локальные; канонические — в MLflow)
+ml/artifacts/*.joblib
+mlruns/
+mlartifacts/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Claude transient
+.claude/

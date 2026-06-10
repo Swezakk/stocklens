@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Конвейер расширяется вместе с кодом: mypy и pytest добавляются
+# с первым пакетом (stocklens-core), сборка Docker-образов — с первым сервисом.
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: ruff check
+        run: uvx ruff check .
+
+      - name: ruff format check
+        run: uvx ruff format --check .

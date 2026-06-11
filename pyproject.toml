@@ -66,9 +66,21 @@ show_error_codes = true
 pretty = true
 
 [[tool.mypy.overrides]]
-# Нетипизированные сторонние границы (нет py.typed/стабов):
-# testcontainers — только интеграционные тесты; apscheduler 3.x — планировщик ingestor.
-module = ["testcontainers.*", "apscheduler.*"]
+# Нетипизированные сторонние границы (нет py.typed/стабов): testcontainers —
+# интеграционные тесты; apscheduler 3.x — планировщик; feedparser (стабы
+# types-feedparser неполные), onnxruntime/tokenizers/optimum — sentiment-инференс.
+module = [
+    "testcontainers.*",
+    "apscheduler.*",
+    "feedparser",
+    "feedparser.*",
+    "onnxruntime",
+    "onnxruntime.*",
+    "tokenizers",
+    "tokenizers.*",
+    "optimum",
+    "optimum.*",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

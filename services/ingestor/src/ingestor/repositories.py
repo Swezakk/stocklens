@@ -4,13 +4,23 @@
 (postgresql dialect) — идемпотентность всех операций записи гарантирована.
 """
 
-from datetime import date
+from datetime import date, datetime
 
 import structlog
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
-from stocklens_core.models.market import Candle, Dividend, IndexValue, Security, Split
+from stocklens_core.enums import Currency, SentimentLabel
+from stocklens_core.models.market import (
+    Candle,
+    CurrencyRate,
+    Dividend,
+    IndexValue,
+    KeyRate,
+    Security,
+    Split,
+)
+from stocklens_core.models.news import NewsArticle, NewsSentiment, NewsTicker
 from stocklens_core.models.portfolio import PortfolioPosition
 
 from ingestor.parsing import (
@@ -27,6 +37,7 @@ def upsert_securities(
     session: Session,
     items: list[ParsedConstituent],
     deactivate_missing: bool,
+    alias_seed: dict[str, list[str]] | None = None,
 ) -> int:
     """Синхронизировать список ценных бумаг с таблицей securities.
 
@@ -35,10 +46,14 @@ def upsert_securities(
     только при deactivate_missing=True — вызывающий устанавливает этот флаг
     лишь после полного успешного получения состава индекса (len >= 30).
 
+    Если передан alias_seed, псевдонимы мержатся с уже сохранёнными через union —
+    существующие вручную добавленные псевдонимы никогда не удаляются.
+
     Args:
         session: Синхронная SQLAlchemy-сессия.
         items: Список распарсенных компонентов индекса.
         deactivate_missing: Деактивировать бумаги, не вошедшие в список.
+        alias_seed: Словарь тикер → список псевдонимов для мержа.
 
     Returns:
         Количество затронутых строк.
@@ -59,6 +74,9 @@ def upsert_securities(
     )
     session.execute(stmt)
 
+    if alias_seed:
+        _merge_aliases(session, alias_seed)
+
     if deactivate_missing:
         session.execute(
             update(Security).where(Security.ticker.notin_(tickers)).values(is_active=False)
@@ -66,6 +84,30 @@ def upsert_securities(
         log.info("securities_deactivated", active_tickers=tickers)
 
     return len(values)
+
+
+def _merge_aliases(session: Session, alias_seed: dict[str, list[str]]) -> None:
+    """Смержить seed-псевдонимы с уже сохранёнными в БД через union.
+
+    Существующие псевдонимы (добавленные вручную или ранее) никогда не удаляются.
+    Порядок в результирующем массиве не гарантируется, но уникальность обеспечена.
+
+    Args:
+        session: Синхронная SQLAlchemy-сессия.
+        alias_seed: Словарь тикер → список новых псевдонимов для добавления.
+    """
+    seed_tickers = list(alias_seed.keys())
+    rows = session.execute(
+        select(Security.ticker, Security.aliases).where(Security.ticker.in_(seed_tickers))
+    ).all()
+
+    for row in rows:
+        ticker: str = str(row[0])
+        # cast: JSONB возвращает list[str] на Python-стороне — проверяем тип явно
+        existing: list[str] = row[1] if isinstance(row[1], list) else []
+        seed_list = alias_seed.get(ticker, [])
+        merged = list(dict.fromkeys(existing + seed_list))  # union с сохранением порядка
+        session.execute(update(Security).where(Security.ticker == ticker).values(aliases=merged))
 
 
 def upsert_candles(
@@ -331,4 +373,224 @@ def get_security_id(session: Session, ticker: str) -> int | None:
     """
     return session.execute(
         select(Security.id).where(Security.ticker == ticker)
+    ).scalar_one_or_none()
+
+
+def get_alias_index(session: Session) -> dict[str, str]:
+    """Построить индекс псевдоним→тикер для всех активных бумаг.
+
+    Включает сам тикер как псевдоним (латиница, для прямых упоминаний в тексте).
+    Используется для сопоставления упоминаний новостей с тикерами.
+
+    Args:
+        session: Синхронная SQLAlchemy-сессия.
+
+    Returns:
+        Словарь {псевдоним_в_нижнем_регистре: тикер}.
+    """
+    rows = session.execute(
+        select(Security.ticker, Security.aliases).where(Security.is_active.is_(True))
+    ).all()
+
+    index: dict[str, str] = {}
+    for row in rows:
+        ticker: str = str(row[0])
+        # JSONB может вернуть None для строк созданных до server_default
+        aliases: list[str] = row[1] if isinstance(row[1], list) else []
+        index[ticker.lower()] = ticker
+        for alias in aliases:
+            index[alias.lower()] = ticker
+    return index
+
+
+def insert_news_articles_returning_new(
+    session: Session,
+    articles: list[dict[str, object]],
+) -> list[int]:
+    """Вставить новостные статьи, вернуть id только новых строк.
+
+    ON CONFLICT (url) DO NOTHING — повторный url не обновляется и не возвращается,
+    что позволяет скорить sentiment только для свежих публикаций.
+
+    Args:
+        session: Синхронная SQLAlchemy-сессия.
+        articles: Список словарей с полями source/url/title/summary/published_at.
+
+    Returns:
+        Список id вставленных (новых) строк.
+    """
+    if not articles:
+        return []
+
+    stmt = (
+        insert(NewsArticle)
+        .values(articles)
+        .on_conflict_do_nothing(index_elements=["url"])
+        .returning(NewsArticle.id)
+    )
+    result = session.execute(stmt)
+    return [int(row[0]) for row in result]
+
+
+def upsert_news_sentiment(
+    session: Session,
+    article_id: int,
+    label: SentimentLabel,
+    score: float,
+    model_version: str,
+) -> None:
+    """Upsert результата sentiment-классификации для статьи.
+
+    Args:
+        session: Синхронная SQLAlchemy-сессия.
+        article_id: ID статьи.
+        label: Тональность.
+        score: Уверенность модели (0..1).
+        model_version: Строковый идентификатор модели.
+    """
+    stmt = insert(NewsSentiment).values(
+        article_id=article_id,
+        label=label,
+        score=score,
+        model_version=model_version,
+    )
+    stmt = stmt.on_conflict_do_nothing(index_elements=["article_id"])
+    session.execute(stmt)
+
+
+def insert_news_tickers(
+    session: Session,
+    article_id: int,
+    security_ids: list[int],
+) -> None:
+    """Связать статью с упомянутыми инструментами.
+
+    ON CONFLICT DO NOTHING — идемпотентно при повторном вызове.
+
+    Args:
+        session: Синхронная SQLAlchemy-сессия.
+        article_id: ID статьи.
+        security_ids: Список id инструментов.
+    """
+    if not security_ids:
+        return
+
+    values = [{"article_id": article_id, "security_id": sid} for sid in security_ids]
+    stmt = insert(NewsTicker).values(values).on_conflict_do_nothing()
+    session.execute(stmt)
+
+
+def upsert_currency_rates(
+    session: Session,
+    rates: list[dict[str, object]],
+) -> int:
+    """Upsert курсов валют ЦБ РФ.
+
+    Args:
+        session: Синхронная SQLAlchemy-сессия.
+        rates: Список словарей с полями currency/rate_date/rate.
+
+    Returns:
+        Количество затронутых строк.
+    """
+    if not rates:
+        return 0
+
+    stmt = insert(CurrencyRate).values(rates)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["currency", "rate_date"],
+        set_={"rate": stmt.excluded.rate},
+    )
+    session.execute(stmt)
+    return len(rates)
+
+
+def upsert_key_rates(
+    session: Session,
+    rates: list[dict[str, object]],
+) -> int:
+    """Upsert ключевых ставок ЦБ РФ.
+
+    Args:
+        session: Синхронная SQLAlchemy-сессия.
+        rates: Список словарей с полями rate_date/rate.
+
+    Returns:
+        Количество затронутых строк.
+    """
+    if not rates:
+        return 0
+
+    stmt = insert(KeyRate).values(rates)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["rate_date"],
+        set_={"rate": stmt.excluded.rate},
+    )
+    session.execute(stmt)
+    return len(rates)
+
+
+def last_currency_rate_date(session: Session, currency: Currency) -> date | None:
+    """Найти дату последнего курса для валюты.
+
+    Args:
+        session: Синхронная SQLAlchemy-сессия.
+        currency: Код валюты.
+
+    Returns:
+        Дата последнего курса или None.
+    """
+    return session.execute(
+        select(CurrencyRate.rate_date)
+        .where(CurrencyRate.currency == currency)
+        .order_by(CurrencyRate.rate_date.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def last_key_rate_date(session: Session) -> date | None:
+    """Найти дату последней ключевой ставки.
+
+    Args:
+        session: Синхронная SQLAlchemy-сессия.
+
+    Returns:
+        Дата последней ставки или None.
+    """
+    return session.execute(
+        select(KeyRate.rate_date).order_by(KeyRate.rate_date.desc()).limit(1)
+    ).scalar_one_or_none()
+
+
+def get_security_ids_by_tickers(session: Session, tickers: list[str]) -> dict[str, int]:
+    """Получить словарь тикер→id для переданных тикеров.
+
+    Args:
+        session: Синхронная SQLAlchemy-сессия.
+        tickers: Список тикеров.
+
+    Returns:
+        Словарь {тикер: security_id}.
+    """
+    if not tickers:
+        return {}
+
+    rows = session.execute(
+        select(Security.ticker, Security.id).where(Security.ticker.in_(tickers))
+    ).all()
+    return {str(r[0]): int(r[1]) for r in rows}
+
+
+def get_article_published_at(session: Session, article_id: int) -> datetime | None:
+    """Получить дату публикации статьи по id.
+
+    Args:
+        session: Синхронная SQLAlchemy-сессия.
+        article_id: ID статьи.
+
+    Returns:
+        Дата публикации или None если не найдена.
+    """
+    return session.execute(
+        select(NewsArticle.published_at).where(NewsArticle.id == article_id)
     ).scalar_one_or_none()

@@ -10,6 +10,7 @@ import structlog
 from sqlalchemy.orm import Session, sessionmaker
 
 from ingestor import heartbeat
+from ingestor.aliases_seed import TICKER_ALIASES
 from ingestor.iss_client import MoexIssClient
 from ingestor.parsing import (
     ParsedConstituent,
@@ -68,7 +69,12 @@ def sync_securities(
             deactivate = len(constituents) >= _MIN_CONSTITUENTS_FOR_DEACTIVATION
 
             with session_factory() as session:
-                added = upsert_securities(session, constituents, deactivate_missing=deactivate)
+                added = upsert_securities(
+                    session,
+                    constituents,
+                    deactivate_missing=deactivate,
+                    alias_seed=TICKER_ALIASES,
+                )
                 session.commit()
             journal.add_records(added)
 
@@ -93,7 +99,12 @@ def sync_securities(
                 all_constituents.append(ParsedConstituent(ticker=ticker, name=name))
 
             with session_factory() as session:
-                added = upsert_securities(session, all_constituents, deactivate_missing=False)
+                added = upsert_securities(
+                    session,
+                    all_constituents,
+                    deactivate_missing=False,
+                    alias_seed=TICKER_ALIASES,
+                )
                 session.commit()
             journal.add_records(added)
 
@@ -246,10 +257,11 @@ def run_all_collectors(
     session_factory: sessionmaker[Session],
     settings: IngestorSettings,
 ) -> None:
-    """Запустить все пять сборщиков последовательно.
+    """Запустить все MOEX-сборщики последовательно.
 
     Сбой одного сборщика не прерывает остальные — каждый обёрнут
     в collector_run, который подавляет исключения и пишет статус FAILED.
+    Новостные и CBR-сборщики оркестрирует run_backfill в backfill.py.
 
     Args:
         client: Клиент MOEX ISS.

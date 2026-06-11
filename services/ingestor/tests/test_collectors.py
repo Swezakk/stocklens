@@ -8,7 +8,12 @@ import pytest
 import responses as resp_lib
 from alembic import command
 from alembic.config import Config
-from ingestor.collectors.moex import run_all_collectors, sync_candles, sync_dividends
+from ingestor.collectors.moex import (
+    run_all_collectors,
+    sync_candles,
+    sync_dividends,
+    sync_securities,
+)
 from ingestor.iss_client import MoexIssClient
 from ingestor.parsing import ParsedConstituent
 from ingestor.repositories import upsert_securities
@@ -79,6 +84,38 @@ def _seed_sber(session_factory: sessionmaker[Session]) -> int:
         s.commit()
         sec = s.query(Security).filter_by(ticker="SBER").one()
         return int(sec.id)
+
+
+class TestSyncSecurities:
+    @resp_lib.activate
+    def test_sync_securities_applies_alias_seed(
+        self,
+        session_factory: sessionmaker[Session],
+        settings: IngestorSettings,
+        client: MoexIssClient,
+    ) -> None:
+        """После синхронизации бумага получает псевдонимы из aliases_seed.
+
+        Без сида матчинг новостей по именам компаний («Сбер», «Сбербанк»)
+        не работает — псевдонимы обязаны попадать в БД автоматически.
+        """
+        description_payload = {
+            "description": {
+                "columns": ["name", "title", "value"],
+                "data": [["SHORTNAME", "Краткое наименование", "Сбербанк"]],
+            }
+        }
+        resp_lib.add(
+            resp_lib.GET,
+            f"{_BASE}/securities/SBER.json",
+            json=description_payload,
+        )
+
+        sync_securities(client, session_factory, settings)
+
+        with session_factory() as s:
+            sec = s.execute(select(Security).filter_by(ticker="SBER")).scalar_one()
+            assert "Сбер" in sec.aliases, f"Seed aliases not applied: aliases={sec.aliases}"
 
 
 class TestSyncCandles:

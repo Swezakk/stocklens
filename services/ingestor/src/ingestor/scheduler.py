@@ -3,6 +3,8 @@
 Расписание:
 - 23:55 ежедневно — свечи и индекс (после закрытия торгов).
 - 08:00 ежедневно — ценные бумаги, дивиденды, сплиты (корпоративные данные утром).
+- 13:00 ежедневно — курсы валют и ключевая ставка ЦБ.
+- каждые 30 минут — сбор новостей из RSS.
 - каждые 60 секунд — heartbeat для healthcheck контейнера.
 
 misfire_grace_time=300: если задача пропущена (перезапуск контейнера),
@@ -13,6 +15,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from sqlalchemy.orm import Session, sessionmaker
 
 from ingestor import heartbeat
+from ingestor.collectors.cbr import sync_currency_rates, sync_key_rate
 from ingestor.collectors.moex import (
     sync_candles,
     sync_dividends,
@@ -20,7 +23,9 @@ from ingestor.collectors.moex import (
     sync_securities,
     sync_splits,
 )
+from ingestor.collectors.rss import sync_news
 from ingestor.iss_client import MoexIssClient
+from ingestor.sentiment import OnnxSentimentScorer
 from ingestor.settings import IngestorSettings
 
 _MISFIRE_GRACE_SECONDS = 300
@@ -41,6 +46,11 @@ def build_scheduler(
     Returns:
         Готовый к запуску планировщик (start() не вызван).
     """
+    scorer = OnnxSentimentScorer(
+        model_dir=settings.sentiment_model_dir,
+        model_id=settings.sentiment_model_id,
+    )
+
     scheduler = BlockingScheduler(timezone="Europe/Moscow")
 
     scheduler.add_job(
@@ -96,6 +106,42 @@ def build_scheduler(
         misfire_grace_time=_MISFIRE_GRACE_SECONDS,
         max_instances=1,
         id="splits_daily",
+    )
+
+    scheduler.add_job(
+        sync_currency_rates,
+        "cron",
+        hour=13,
+        minute=0,
+        kwargs={"session_factory": session_factory, "settings": settings},
+        misfire_grace_time=_MISFIRE_GRACE_SECONDS,
+        max_instances=1,
+        id="cbr_rates_daily",
+    )
+
+    scheduler.add_job(
+        sync_key_rate,
+        "cron",
+        hour=13,
+        minute=0,
+        kwargs={"session_factory": session_factory, "settings": settings},
+        misfire_grace_time=_MISFIRE_GRACE_SECONDS,
+        max_instances=1,
+        id="cbr_key_rate_daily",
+    )
+
+    scheduler.add_job(
+        sync_news,
+        "cron",
+        minute="*/30",
+        kwargs={
+            "session_factory": session_factory,
+            "settings": settings,
+            "scorer": scorer,
+        },
+        misfire_grace_time=_MISFIRE_GRACE_SECONDS,
+        max_instances=1,
+        id="rss_news_periodic",
     )
 
     scheduler.add_job(

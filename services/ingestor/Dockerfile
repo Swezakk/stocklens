@@ -21,11 +21,25 @@ RUN uv sync \
     --project services/ingestor
 
 
+FROM builder AS onnx-exporter
+
+# optimum нужна только на стадии экспорта — не попадает в prod-образ.
+RUN pip install --quiet "optimum[onnxruntime]>=1.23"
+
+ENV SENTIMENT_MODEL_ID=cointegrated/rubert-tiny-sentiment-balanced
+
+RUN optimum-cli export onnx \
+    --model "${SENTIMENT_MODEL_ID}" \
+    --task text-classification \
+    /build/model_onnx
+
+
 FROM python:3.12-slim-bookworm AS runtime
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    SENTIMENT_MODEL_DIR=/app/model_onnx
 
 WORKDIR /app
 
@@ -35,5 +49,7 @@ COPY --from=builder /build/services/ingestor/.venv /app/.venv
 # который работает из того же образа с командой "alembic upgrade head".
 COPY --from=builder /build/alembic /app/alembic
 COPY --from=builder /build/alembic.ini /app/alembic.ini
+# ONNX-модель тональности, экспортированная на стадии onnx-exporter.
+COPY --from=onnx-exporter /build/model_onnx /app/model_onnx
 
 CMD ["python", "-m", "ingestor"]

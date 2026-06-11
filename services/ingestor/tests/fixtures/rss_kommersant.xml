@@ -1,0 +1,50 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <language>ru</language>
+    <copyright>1991-2026, АО «Коммерсантъ».</copyright>
+    <docs>http://blogs.law.harvard.edu/tech/rss</docs>
+    <title>Коммерсантъ. Лента новостей</title>
+    <link>https://www.kommersant.ru/publishing/86</link>
+    <atom:link rel="self" href="https://www.kommersant.ru/rss/news.xml" />
+    <description>Регулярно обновляемая новостная лента ИД "Коммерсантъ"</description>
+    <lastBuildDate>Thu, 11 Jun 2026 04:56:00 +0300</lastBuildDate>
+    <image>
+      <url>https://iv.kommersant.ru/pics/yatlogo.gif</url>
+      <title>Коммерсантъ. Лента новостей</title>
+      <link>https://www.kommersant.ru/publishing/86</link>
+    </image>
+    <item>
+      <guid>https://www.kommersant.ru/doc/8736197</guid>
+      <category>Мир</category>
+      <title>Посол Феоктистов: Россия хочет видеть Аргентину в числе своих друзей</title>
+      <link>https://www.kommersant.ru/doc/8736197</link>
+      <pubDate>Thu, 11 Jun 2026 04:51:12 +0300</pubDate>
+      <description>Посол России в Буэнос-Айресе Дмитрий Феоктистов на торжественном приеме по случаю Дня России сказал, что Москва хотела бы видеть Аргентину в числе дружественных государств. «У России много друзей по всему миру.</description>
+    </item>
+    <item>
+      <guid>https://www.kommersant.ru/doc/8736206</guid>
+      <category>Мир</category>
+      <title>КСИР заявил об ударах по двум судам в Ормузском проливе</title>
+      <link>https://www.kommersant.ru/doc/8736206</link>
+      <pubDate>Thu, 11 Jun 2026 04:35:58 +0300</pubDate>
+      <description>Корпус стражей исламской революции (КСИР) заявил об ударах по двум судам, пытавшимся пересечь Ормузский пролив. Об этом сообщает агентство Tasnim.</description>
+    </item>
+    <item>
+      <guid>https://www.kommersant.ru/doc/8736191</guid>
+      <category>Мир</category>
+      <title>Россия и Лига арабских государств готовят форума на уровне министров</title>
+      <link>https://www.kommersant.ru/doc/8736191</link>
+      <pubDate>Thu, 11 Jun 2026 04:12:08 +0300</pubDate>
+      <description>Россия и Лига арабских государств (ЛАГ) приступили к подготовке форума на министерском уровне, сообщил представитель организации в Москве Валид Хамед Шилтаг. Сроки и место встречи дипломат уточнять не стал.</description>
+    </item>
+    <item>
+      <guid>https://www.kommersant.ru/doc/8736208</guid>
+      <category>Мир</category>
+      <title>США опровергли закрытие Ормузского пролива</title>
+      <link>https://www.kommersant.ru/doc/8736208</link>
+      <pubDate>Thu, 11 Jun 2026 04:06:32 +0300</pubDate>
+      <description>Центральное командование вооруженных сил США (CENTCOM) опровергло закрытие Ормузского пролива Ираном. Ранее штаб военного командования Ирана объявил об остановке движения через морской путь.</description>
+    </item>
+  </channel>
+</rss>

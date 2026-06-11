@@ -11,6 +11,9 @@ dependencies = [
     "psycopg[binary]>=3.3",
     "alembic>=1.18",
     "stocklens-core",
+    "feedparser>=6.0.12",
+    "onnxruntime>=1.19",
+    "tokenizers>=0.19",
 ]
 
 [dependency-groups]
@@ -20,6 +23,7 @@ dev = [
     "mypy>=2.1",
     "responses>=0.26",
     "testcontainers[postgres]>=4.14",
+    "optimum[onnxruntime]>=1.23",
 ]
 
 [tool.uv.sources]
@@ -34,3 +38,4 @@ package = true
 
 [tool.uv.build-backend]
 module-name = "ingestor"
+

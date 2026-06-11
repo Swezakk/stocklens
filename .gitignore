@@ -42,3 +42,6 @@ mlartifacts/
 
 # Claude transient
 .claude/
+
+# Кэш ONNX-модели для тестов sentiment (экспортируется conftest-фикстурой)
+.pytest-onnx-cache/

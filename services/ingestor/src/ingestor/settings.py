@@ -19,6 +19,8 @@ class IngestorSettings(BaseSettings):
     - HEARTBEAT_PATH — путь к файлу-сигналу живости для healthcheck контейнера
     - SCHEMA_WAIT_ATTEMPTS — сколько раз ждать готовности схемы БД
     - SCHEMA_WAIT_INTERVAL_SECONDS — пауза между попытками ожидания схемы (сек.)
+    - SENTIMENT_MODEL_DIR — директория с экспортированной ONNX-моделью тональности
+    - SENTIMENT_MODEL_ID — идентификатор модели на HuggingFace Hub (для model_version)
     """
 
     database_url: PostgresDsn
@@ -27,6 +29,8 @@ class IngestorSettings(BaseSettings):
     heartbeat_path: Path = Path("/tmp/ingestor-heartbeat")
     schema_wait_attempts: int = 30
     schema_wait_interval_seconds: float = 5.0
+    sentiment_model_dir: Path = Path("model_onnx")
+    sentiment_model_id: str = "cointegrated/rubert-tiny-sentiment-balanced"
 
     model_config = {
         "case_sensitive": False,

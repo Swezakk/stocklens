@@ -66,3 +66,39 @@ jobs:
 
       - name: mypy strict
         run: uv run mypy alembic tests
+
+  ingestor:
+    name: ingestor (pytest + mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: uv sync
+        run: uv sync --project services/ingestor
+
+      - name: pytest (coverage >= 50%, integration в testcontainers)
+        run: >
+          uv run --project services/ingestor
+          pytest services/ingestor/tests
+          --cov=ingestor --cov-fail-under=50
+
+      - name: mypy strict
+        run: >
+          uv run --project services/ingestor
+          mypy services/ingestor/src services/ingestor/tests
+
+  build:
+    name: docker compose build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: env для compose-интерполяции
+        run: cp .env.example .env
+
+      - name: docker compose build
+        run: docker compose build

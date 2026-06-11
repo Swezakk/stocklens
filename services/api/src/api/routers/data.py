@@ -4,7 +4,7 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Query, Request
-from stocklens_core.enums import SentimentLabel
+from stocklens_core.enums import Currency, SentimentLabel
 
 from api.core.cache import RedisCache
 from api.core.db import RedisDep, SessionDep
@@ -12,13 +12,23 @@ from api.core.pagination import PageDep
 from api.core.settings import ApiSettings
 from api.repositories.candle import SqlCandleRepository
 from api.repositories.dividend import SqlDividendRepository
+from api.repositories.market_data import SqlMarketDataRepository
 from api.repositories.news import SqlNewsRepository
 from api.repositories.security import SqlSecurityRepository
 from api.schemas.common import Page
-from api.schemas.market import CandleOut, DividendOut, SecurityOut
+from api.schemas.market import (
+    CandleOut,
+    CurrencyRateOut,
+    DividendOut,
+    IndexValueOut,
+    KeyRateOut,
+    MoversOut,
+    SecurityOut,
+)
 from api.schemas.news import NewsOut
 from api.services.candles import CandleService
 from api.services.dividends import DividendService
+from api.services.market_data import MarketDataService
 from api.services.news import NewsService
 from api.services.securities import SecurityService
 
@@ -30,6 +40,12 @@ TickerRequiredDep = Annotated[str, Query(description="Тикер инструм�
 SentimentDep = Annotated[SentimentLabel | None, Query(description="Фильтр по тональности")]
 DateFromDep = Annotated[date | None, Query(description="Начало диапазона дат")]
 DateToDep = Annotated[date | None, Query(description="Конец диапазона дат")]
+CurrencyDep = Annotated[Currency | None, Query(description="Фильтр по валюте")]
+IndexCodeDep = Annotated[str, Query(description="Код индекса, например IMOEX")]
+MoverLimitDep = Annotated[
+    int,
+    Query(ge=1, le=50, description="Количество позиций в списке лидеров роста/падения (1–50)"),
+]
 
 
 def _settings(request: Request) -> ApiSettings:
@@ -141,3 +157,100 @@ async def list_dividends(
         limit=page.limit,
         offset=page.offset,
     )
+
+
+@router.get(
+    "/data/index",
+    response_model=Page[IndexValueOut],
+    summary="Значения биржевого индекса",
+    description=(
+        "Возвращает постраничные значения индекса (по умолчанию IMOEX), "
+        "отсортированные по дате убывания."
+    ),
+)
+async def list_index(
+    session: SessionDep,
+    page: PageDep,
+    index_code: IndexCodeDep = "IMOEX",
+    date_from: DateFromDep = None,
+    date_to: DateToDep = None,
+) -> Page[IndexValueOut]:
+    """GET /data/index — значения биржевого индекса с пагинацией."""
+    repo = SqlMarketDataRepository(session)
+    service = MarketDataService(repo)
+    return await service.list_index(
+        index_code=index_code,
+        date_from=date_from,
+        date_to=date_to,
+        limit=page.limit,
+        offset=page.offset,
+    )
+
+
+@router.get(
+    "/data/currency-rates",
+    response_model=Page[CurrencyRateOut],
+    summary="Курсы валют к рублю",
+    description="Возвращает постраничные курсы валют ЦБ РФ, отсортированные по дате убывания.",
+)
+async def list_currency_rates(
+    session: SessionDep,
+    page: PageDep,
+    currency: CurrencyDep = None,
+    date_from: DateFromDep = None,
+    date_to: DateToDep = None,
+) -> Page[CurrencyRateOut]:
+    """GET /data/currency-rates — курсы валют с опциональной фильтрацией."""
+    repo = SqlMarketDataRepository(session)
+    service = MarketDataService(repo)
+    return await service.list_currency_rates(
+        currency=currency,
+        date_from=date_from,
+        date_to=date_to,
+        limit=page.limit,
+        offset=page.offset,
+    )
+
+
+@router.get(
+    "/data/key-rate",
+    response_model=Page[KeyRateOut],
+    summary="Ключевая ставка ЦБ РФ",
+    description=(
+        "Возвращает постраничную историю ключевой ставки, отсортированную по дате убывания."
+    ),
+)
+async def list_key_rate(
+    session: SessionDep,
+    page: PageDep,
+    date_from: DateFromDep = None,
+    date_to: DateToDep = None,
+) -> Page[KeyRateOut]:
+    """GET /data/key-rate — история ключевой ставки ЦБ РФ."""
+    repo = SqlMarketDataRepository(session)
+    service = MarketDataService(repo)
+    return await service.list_key_rate(
+        date_from=date_from,
+        date_to=date_to,
+        limit=page.limit,
+        offset=page.offset,
+    )
+
+
+@router.get(
+    "/data/movers",
+    response_model=MoversOut,
+    summary="Лидеры роста и падения",
+    description=(
+        "Возвращает топ-N активных бумаг с наибольшим ростом и падением цены "
+        "по сравнению с предыдущим торговым днём (выходные сессии исключены)."
+    ),
+)
+async def get_movers(
+    session: SessionDep,
+    limit: MoverLimitDep = 5,
+) -> MoversOut:
+    """GET /data/movers — лидеры роста и падения дня."""
+    repo = SqlMarketDataRepository(session)
+    service = MarketDataService(repo)
+    return await service.get_movers(limit=limit)

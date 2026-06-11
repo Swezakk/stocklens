@@ -8,13 +8,13 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Protocol
 
-from stocklens_core.enums import AlertKind, CollectorRunStatus, SentimentLabel
+from stocklens_core.enums import AlertKind, CollectorRunStatus, Currency, SentimentLabel
 from stocklens_core.models.market import Dividend, Security
 from stocklens_core.models.news import NewsArticle, NewsSentiment
 from stocklens_core.models.operations import CollectorRun
 from stocklens_core.models.portfolio import BotSubscription, PortfolioPosition, Watchlist
 
-from api.schemas.market import CandleOut
+from api.schemas.market import CandleOut, CurrencyRateOut, IndexValueOut, KeyRateOut, MoverOut
 
 
 class SecurityRepository(Protocol):
@@ -159,6 +159,53 @@ class MarketHistoryRepository(Protocol):
 
     async def latest_key_rate(self) -> Decimal | None:
         """Вернуть последнее значение ключевой ставки ЦБ РФ (в процентах, напр. 16.00)."""
+        ...
+
+
+class MarketDataRepository(Protocol):
+    """Чтение рыночных справочных данных: индексы, курсы валют, ключевая ставка, муверы."""
+
+    async def index_series_page(
+        self,
+        index_code: str,
+        date_from: date | None,
+        date_to: date | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[IndexValueOut], int]:
+        """Вернуть страницу значений индекса (desc by trade_date) и общее число записей."""
+        ...
+
+    async def currency_rates_page(
+        self,
+        currency: Currency | None,
+        date_from: date | None,
+        date_to: date | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[CurrencyRateOut], int]:
+        """Вернуть страницу курсов валют (desc by rate_date) и общее число записей."""
+        ...
+
+    async def key_rates_page(
+        self,
+        date_from: date | None,
+        date_to: date | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[KeyRateOut], int]:
+        """Вернуть страницу ключевых ставок (desc by rate_date) и общее число записей."""
+        ...
+
+    async def active_securities_latest_closes(
+        self,
+        limit_per_security: int = 2,
+    ) -> list[MoverOut]:
+        """Вернуть последние 2 свечи для каждой активной бумаги (только регулярные сессии).
+
+        Возвращает MoverOut с заполненными ticker, name, close, prev_close, change_pct.
+        Бумаги с менее чем 2 свечами пропускаются на уровне БД.
+        """
         ...
 
 

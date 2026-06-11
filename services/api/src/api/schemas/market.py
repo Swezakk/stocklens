@@ -1,4 +1,4 @@
-"""DTO для рыночных данных: ценные бумаги, свечи, дивиденды."""
+"""DTO для рыночных данных: ценные бумаги, свечи, дивиденды, индексы, курсы, ставки, муверы."""
 
 from datetime import date
 from decimal import Decimal
@@ -47,3 +47,48 @@ class DividendOut(BaseModel):
     ex_date: date
     value: Decimal
     currency: Currency
+
+
+class IndexValueOut(BaseModel):
+    """DTO значения биржевого индекса за торговый день."""
+
+    model_config = {"from_attributes": True}
+
+    trade_date: date
+    close: Decimal
+
+
+class CurrencyRateOut(BaseModel):
+    """DTO курса валюты к рублю."""
+
+    model_config = {"from_attributes": True}
+
+    currency: Currency
+    rate_date: date
+    rate: Decimal
+
+
+class KeyRateOut(BaseModel):
+    """DTO ключевой ставки ЦБ РФ."""
+
+    model_config = {"from_attributes": True}
+
+    rate_date: date
+    rate: Decimal
+
+
+class MoverOut(BaseModel):
+    """DTO бумаги-лидера роста или падения дня."""
+
+    ticker: str
+    name: str
+    close: Decimal
+    prev_close: Decimal
+    change_pct: float
+
+
+class MoversOut(BaseModel):
+    """DTO лидеров роста и падения."""
+
+    gainers: list[MoverOut]
+    losers: list[MoverOut]

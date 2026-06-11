@@ -5,7 +5,14 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from stocklens_core.enums import AlertKind, CollectorRunStatus, Currency, SentimentLabel
-from stocklens_core.models.market import Candle, Dividend, IndexValue, KeyRate, Security
+from stocklens_core.models.market import (
+    Candle,
+    CurrencyRate,
+    Dividend,
+    IndexValue,
+    KeyRate,
+    Security,
+)
 from stocklens_core.models.news import NewsArticle, NewsSentiment, NewsTicker
 from stocklens_core.models.operations import CollectorRun
 from stocklens_core.models.portfolio import BotSubscription, PortfolioPosition, Watchlist
@@ -146,6 +153,19 @@ async def seed_key_rate(
     session.add(kr)
     await session.flush()
     return kr
+
+
+async def seed_currency_rate(
+    session: AsyncSession,
+    currency: Currency = Currency.USD,
+    rate_date: date = date(2024, 1, 15),
+    rate: Decimal = Decimal("89.50"),
+) -> CurrencyRate:
+    """Засеять курс валюты к рублю."""
+    cr = CurrencyRate(currency=currency, rate_date=rate_date, rate=rate)
+    session.add(cr)
+    await session.flush()
+    return cr
 
 
 async def seed_portfolio_position(

@@ -117,3 +117,26 @@ class OptimizeResult(BaseModel):
 
 
 _PRICE_LEVEL_ALERT_KINDS = {AlertKind.PRICE_LEVEL}
+
+
+class EquityPointOut(BaseModel):
+    """DTO точки кривой капитала бэктеста."""
+
+    date: date
+    portfolio: float
+    imoex: float
+
+
+class BacktestResultOut(BaseModel):
+    """DTO результата бэктеста равновзвешенного портфеля vs IMOEX."""
+
+    months_back: int
+    period_from: date
+    period_to: date
+    portfolio_return_pct: float
+    imoex_return_pct: float
+    portfolio_sharpe: float
+    imoex_sharpe: float
+    portfolio_max_drawdown: float
+    imoex_max_drawdown: float
+    equity_curve: list[EquityPointOut]

@@ -1,4 +1,4 @@
-"""Эндпоинты управления портфелем: позиции, сводка, оптимизация."""
+"""Эндпоинты управления портфелем: позиции, сводка, оптимизация, бэктест."""
 
 from typing import Annotated
 
@@ -10,12 +10,14 @@ from api.repositories.market_history import SqlMarketHistoryRepository
 from api.repositories.portfolio import SqlPortfolioRepository
 from api.repositories.security import SqlSecurityRepository
 from api.schemas.portfolio import (
+    BacktestResultOut,
     OptimizeRequest,
     OptimizeResult,
     PortfolioSummaryOut,
     PositionIn,
     PositionOut,
 )
+from api.services.backtest import BacktestService
 from api.services.portfolio import PortfolioService
 
 router = APIRouter(prefix="/api/v1/portfolio", tags=["portfolio"])
@@ -23,6 +25,10 @@ router = APIRouter(prefix="/api/v1/portfolio", tags=["portfolio"])
 PeriodDaysDep = Annotated[
     int,
     Query(ge=2, le=3650, description="Глубина истории в днях (2–3650)"),
+]
+MonthsBackDep = Annotated[
+    int,
+    Query(ge=1, le=120, description="Глубина бэктеста в месяцах (1–120)"),
 ]
 
 
@@ -104,3 +110,25 @@ async def optimize_portfolio(
 ) -> OptimizeResult:
     """POST /portfolio/optimize — оптимизация Марковица."""
     return await _service(session).optimize(body)
+
+
+@router.get(
+    "/backtest",
+    response_model=BacktestResultOut,
+    summary="Бэктест равновзвешенного портфеля",
+    description=(
+        "Симулирует равновзвешенный buy-and-hold для текущих позиций портфеля "
+        "за months_back месяцев и сравнивает с IMOEX. "
+        "422 если портфель пуст или данных котировок недостаточно."
+    ),
+)
+async def backtest(
+    session: SessionDep,
+    months_back: MonthsBackDep = 12,
+) -> BacktestResultOut:
+    """GET /portfolio/backtest — бэктест vs IMOEX."""
+    svc = BacktestService(
+        portfolio_repo=SqlPortfolioRepository(session),
+        market_history_repo=SqlMarketHistoryRepository(session),
+    )
+    return await svc.run(months_back=months_back)

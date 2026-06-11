@@ -147,6 +147,7 @@ stocklens/
 | `securities` | `id`, `ticker` (uniq), `name`, `board`, `aliases` (jsonb), `is_active` | ~45 бумаг IMOEX; `aliases` — словарь имён для матчинга в новостях («Сбер», «Сбербанк» → SBER) |
 | `candles` | `security_id`, `trade_date`, `open/high/low/close`, `volume`, `value`, `is_weekend_session` | uniq `(security_id, trade_date)`; upsert; флаг сессий выходного дня (MOEX торгует по выходным с 03.2025) |
 | `dividends` | `security_id`, `ex_date`, `value`, `currency` | для календаря отсечек и коррекции гэпов в волатильности |
+| `splits` | `security_id`, `split_date`, `before`, `after` | дробления/консолидации (uniq `(security_id, split_date)`); без коррекции на сплит история цен ломает расчёт доходностей |
 | `index_values` | `index_code`, `trade_date`, `close` | IMOEX как бенчмарк |
 | `currency_rates` | `currency`, `rate_date`, `rate` | ЦБ РФ |
 | `news_articles` | `id`, `source`, `url` (uniq), `title`, `summary`, `published_at` | дедупликация по url |

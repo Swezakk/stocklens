@@ -47,3 +47,22 @@ jobs:
         run: >
           uv run --project packages/stocklens-core
           mypy packages/stocklens-core/src packages/stocklens-core/tests
+
+  migrations:
+    name: migrations (alembic + testcontainers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: uv sync
+        run: uv sync
+
+      - name: pytest integration (PostgreSQL 16 в testcontainers)
+        run: uv run pytest tests -m integration
+
+      - name: mypy strict
+        run: uv run mypy alembic tests

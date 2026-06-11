@@ -127,6 +127,13 @@ jobs:
       - name: docker compose build
         run: docker compose build
 
+      # Регрессия: образы собирались, но не запускались — shebang консольных скриптов
+      # (alembic/uvicorn) ломался при копировании venv. Проверяем, что они стартуют.
+      - name: smoke — консольные скрипты в образах работают
+        run: |
+          docker compose run --rm --no-deps migrations alembic --version
+          docker compose run --rm --no-deps api uvicorn --version
+
   publish:
     name: publish images (GHCR)
     runs-on: ubuntu-latest

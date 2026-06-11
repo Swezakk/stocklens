@@ -2,6 +2,10 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
 WORKDIR /build
 
+# venv создаётся сразу по финальному пути /app/.venv: иначе shebang консольных
+# скриптов (uvicorn) указывал бы на путь сборки и ломался после COPY в runtime.
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv
+
 # stocklens-core копируется первым — он нужен как path-зависимость до uv sync.
 COPY packages/stocklens-core /build/packages/stocklens-core
 COPY services/api/pyproject.toml /build/services/api/pyproject.toml
@@ -26,7 +30,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 WORKDIR /app
 
-COPY --from=builder /build/services/api/.venv /app/.venv
+COPY --from=builder /app/.venv /app/.venv
 
 EXPOSE 8000
 

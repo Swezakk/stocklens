@@ -2,6 +2,11 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
 WORKDIR /build
 
+# venv создаётся сразу по финальному пути /app/.venv: иначе shebang консольных
+# скриптов (alembic для сервиса migrations) указывал бы на путь сборки и ломался
+# после COPY в runtime.
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv
+
 # stocklens-core копируется первым — он нужен как path-зависимость до uv sync.
 COPY packages/stocklens-core /build/packages/stocklens-core
 COPY services/ingestor/pyproject.toml /build/services/ingestor/pyproject.toml
@@ -44,7 +49,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 WORKDIR /app
 
 # Venv содержит ingestor и все prod-зависимости (в т.ч. alembic).
-COPY --from=builder /build/services/ingestor/.venv /app/.venv
+COPY --from=builder /app/.venv /app/.venv
 # alembic/ и alembic.ini нужны сервису migrations (override CMD в compose),
 # который работает из того же образа с командой "alembic upgrade head".
 COPY --from=builder /build/alembic /app/alembic

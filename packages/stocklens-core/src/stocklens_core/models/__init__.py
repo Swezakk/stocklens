@@ -12,7 +12,7 @@ from stocklens_core.models.market import (
 )
 from stocklens_core.models.news import NewsArticle, NewsSentiment, NewsTicker
 from stocklens_core.models.operations import CollectorRun
-from stocklens_core.models.portfolio import BotSubscription, PortfolioPosition
+from stocklens_core.models.portfolio import BotSubscription, PortfolioPosition, Watchlist
 from stocklens_core.models.prediction import Prediction
 
 __all__ = [
@@ -31,4 +31,5 @@ __all__ = [
     "Prediction",
     "Security",
     "Split",
+    "Watchlist",
 ]

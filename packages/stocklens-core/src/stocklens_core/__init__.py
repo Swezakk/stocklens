@@ -23,6 +23,7 @@ from stocklens_core.models import (
     Prediction,
     Security,
     Split,
+    Watchlist,
 )
 from stocklens_core.settings import CoreSettings
 
@@ -48,4 +49,5 @@ __all__ = [
     "Security",
     "SentimentLabel",
     "Split",
+    "Watchlist",
 ]

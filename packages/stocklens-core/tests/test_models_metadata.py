@@ -59,6 +59,7 @@ EXPECTED_TABLES = {
     "predictions",
     "collector_runs",
     "bot_subscriptions",
+    "watchlist",
 }
 
 
@@ -269,3 +270,20 @@ def test_unique_constraints_have_uq_names() -> None:
                 assert name.startswith("uq_"), (
                     f"Table '{table.name}': constraint name '{name}' must start with 'uq_'"
                 )
+
+
+def test_watchlist_ticker_is_unique() -> None:
+    """watchlist.ticker: unique constraint 'uq_watchlist_ticker' существует."""
+    assert frozenset({"ticker"}) in _unique_col_sets("watchlist")
+
+
+def test_watchlist_ticker_is_string() -> None:
+    """watchlist.ticker: тип String(16)."""
+    col_type = _col("watchlist", "ticker").type
+    assert isinstance(col_type, sa.String), "watchlist.ticker must be String"
+    assert col_type.length == 16, f"watchlist.ticker: length {col_type.length} != 16"
+
+
+def test_watchlist_added_at_is_timestamptz() -> None:
+    """watchlist.added_at: DateTime с timezone=True (timestamptz)."""
+    _assert_timestamptz("watchlist", "added_at")

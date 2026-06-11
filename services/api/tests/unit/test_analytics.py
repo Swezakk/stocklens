@@ -14,10 +14,13 @@ from api.analytics.constants import TRADING_DAYS_PER_YEAR
 from api.analytics.optimization import (
     build_max_sharpe_weights,
     build_min_volatility_weights,
+    build_weights_for_strategy,
     compute_frontier_points,
 )
 from api.analytics.returns import log_returns, simple_returns, total_returns
 from api.analytics.risk import daily_risk_free, equity_curve, max_drawdown, sharpe_ratio
+from api.schemas.portfolio import OptimizationStrategy
+from pypfopt import expected_returns as pf_expected_returns
 
 
 def test_log_returns_known_values() -> None:
@@ -304,6 +307,55 @@ def test_build_max_sharpe_raises_on_single_price_row() -> None:
 
     with pytest.raises(ValueError, match="не менее 2 значений цен"):
         build_max_sharpe_weights(df, annual_rate_fraction=0.0)
+
+
+def test_build_weights_for_strategy_max_sharpe_vs_min_vol_differ() -> None:
+    """MAX_SHARPE и MIN_VOLATILITY дают разные веса на реалистичных данных."""
+    prices_df = _make_uncorrelated_prices_df()
+    w_sharpe = build_weights_for_strategy(
+        prices_df, OptimizationStrategy.MAX_SHARPE, annual_rate=0.16
+    )
+    w_minvol = build_weights_for_strategy(
+        prices_df, OptimizationStrategy.MIN_VOLATILITY, annual_rate=0.16
+    )
+    assert w_sharpe != w_minvol, "MAX_SHARPE и MIN_VOLATILITY не должны давать идентичные веса"
+    assert math.isclose(sum(w_sharpe.values()), 1.0, abs_tol=1e-4)
+    assert math.isclose(sum(w_minvol.values()), 1.0, abs_tol=1e-4)
+
+
+def test_build_weights_for_strategy_target_return_missing_param_raises() -> None:
+    """TARGET_RETURN без target_return → ValueError с RU-сообщением."""
+    prices_df = _make_uncorrelated_prices_df()
+    with pytest.raises(ValueError, match="TARGET_RETURN"):
+        build_weights_for_strategy(prices_df, OptimizationStrategy.TARGET_RETURN, annual_rate=0.16)
+
+
+def test_build_weights_for_strategy_target_risk_missing_param_raises() -> None:
+    """TARGET_RISK без target_volatility → ValueError."""
+    prices_df = _make_uncorrelated_prices_df()
+    with pytest.raises(ValueError, match="TARGET_RISK"):
+        build_weights_for_strategy(prices_df, OptimizationStrategy.TARGET_RISK, annual_rate=0.16)
+
+
+def test_build_weights_for_strategy_max_utility_missing_param_raises() -> None:
+    """MAX_UTILITY без risk_aversion → ValueError."""
+    prices_df = _make_uncorrelated_prices_df()
+    with pytest.raises(ValueError, match="MAX_UTILITY"):
+        build_weights_for_strategy(prices_df, OptimizationStrategy.MAX_UTILITY, annual_rate=0.16)
+
+
+def test_build_weights_for_strategy_target_return_valid() -> None:
+    """TARGET_RETURN с разумным target_return → веса суммируются ≈ 1."""
+    prices_df = _make_uncorrelated_prices_df()
+    mu = pf_expected_returns.mean_historical_return(prices_df, frequency=TRADING_DAYS_PER_YEAR)
+    feasible_target = float(mu.mean())
+    weights = build_weights_for_strategy(
+        prices_df,
+        OptimizationStrategy.TARGET_RETURN,
+        annual_rate=0.16,
+        target_return=feasible_target,
+    )
+    assert math.isclose(sum(weights.values()), 1.0, abs_tol=1e-4)
 
 
 def test_frontier_points_returns_list() -> None:

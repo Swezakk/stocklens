@@ -2,9 +2,20 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
 from stocklens_core.enums import AlertKind
+
+
+class OptimizationStrategy(StrEnum):
+    """Стратегия оптимизации портфеля по методу Марковица."""
+
+    MAX_SHARPE = "max_sharpe"
+    MIN_VOLATILITY = "min_volatility"
+    TARGET_RETURN = "target_return"
+    TARGET_RISK = "target_risk"
+    MAX_UTILITY = "max_utility"
 
 
 class PositionIn(BaseModel):
@@ -67,6 +78,22 @@ class OptimizeRequest(BaseModel):
         ge=30,
         description="Глубина истории котировок в днях (не менее 30).",
     )
+    strategy: OptimizationStrategy = Field(
+        default=OptimizationStrategy.MAX_SHARPE,
+        description="Стратегия оптимизации.",
+    )
+    target_return: float | None = Field(
+        default=None,
+        description="Целевая годовая доходность (для TARGET_RETURN).",
+    )
+    target_volatility: float | None = Field(
+        default=None,
+        description="Целевой уровень риска (для TARGET_RISK).",
+    )
+    risk_aversion: float | None = Field(
+        default=None,
+        description="Коэффициент неприятия риска λ (для MAX_UTILITY).",
+    )
 
 
 class FrontierPoint(BaseModel):
@@ -77,10 +104,13 @@ class FrontierPoint(BaseModel):
 
 
 class OptimizeResult(BaseModel):
-    """Результат оптимизации: веса для max Sharpe и min vol + эффективная граница."""
+    """Результат оптимизации: веса выбранной стратегии + эффективная граница и бенчмарки."""
 
-    max_sharpe_weights: dict[str, float]
-    min_volatility_weights: dict[str, float]
+    strategy: OptimizationStrategy
+    weights: dict[str, float]
+    expected_return: float
+    volatility: float
+    sharpe: float
     frontier: list[FrontierPoint]
     equal_weight_sharpe: float
     imoex_sharpe: float

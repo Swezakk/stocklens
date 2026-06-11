@@ -8,7 +8,7 @@ from stocklens_core.enums import AlertKind, CollectorRunStatus, Currency, Sentim
 from stocklens_core.models.market import Candle, Dividend, IndexValue, KeyRate, Security
 from stocklens_core.models.news import NewsArticle, NewsSentiment, NewsTicker
 from stocklens_core.models.operations import CollectorRun
-from stocklens_core.models.portfolio import BotSubscription, PortfolioPosition
+from stocklens_core.models.portfolio import BotSubscription, PortfolioPosition, Watchlist
 
 
 async def seed_security(
@@ -215,3 +215,14 @@ async def seed_news_with_sentiment(
 
     await session.flush()
     return article, sentiment
+
+
+async def seed_watchlist_item(
+    session: AsyncSession,
+    ticker: str,
+) -> Watchlist:
+    """Засеять элемент списка наблюдения."""
+    item = Watchlist(ticker=ticker)
+    session.add(item)
+    await session.flush()
+    return item

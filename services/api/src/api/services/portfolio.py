@@ -9,6 +9,7 @@ from functools import partial
 
 import numpy as np
 import pandas as pd
+from pypfopt.exceptions import OptimizationError
 from starlette.concurrency import run_in_threadpool
 from stocklens_core.models.portfolio import PortfolioPosition
 
@@ -17,6 +18,7 @@ from api.analytics.returns import total_returns
 from api.analytics.risk import equity_curve, max_drawdown, sharpe_ratio
 from api.core.exceptions import (
     InsufficientDataError,
+    InvalidStrategyParamsError,
     PositionNotFoundError,
     SecurityNotFoundError,
 )
@@ -27,6 +29,7 @@ from api.repositories.protocols import (
 )
 from api.schemas.portfolio import (
     FrontierPoint,
+    OptimizationStrategy,
     OptimizeRequest,
     OptimizeResult,
     PortfolioSummaryOut,
@@ -170,10 +173,12 @@ class PortfolioService:
         )
 
     async def optimize(self, request: OptimizeRequest) -> OptimizeResult:
-        """Оптимизировать портфель по методу Марковица (max Sharpe и min vol).
+        """Оптимизировать портфель по выбранной стратегии Марковица.
 
         Raises:
-            InsufficientDataError: если менее 2 тикеров или недостаточно истории.
+            InsufficientDataError: менее 2 тикеров или недостаточно истории.
+            InvalidStrategyParamsError: отсутствует обязательный параметр стратегии
+                или целевое значение недостижимо (нефeasible).
         """
         tickers = request.tickers
         if tickers is None:
@@ -206,10 +211,21 @@ class PortfolioService:
                     prices_data=prices_data,
                     imoex_series=imoex_series,
                     annual_rate=annual_rate,
+                    strategy=request.strategy,
+                    target_return=request.target_return,
+                    target_volatility=request.target_volatility,
+                    risk_aversion=request.risk_aversion,
                 )
             )
         except ValueError as exc:
-            raise InsufficientDataError(str(exc)) from exc
+            msg = str(exc)
+            if "не менее 2" in msg:
+                raise InsufficientDataError(msg) from exc
+            raise InvalidStrategyParamsError(msg) from exc
+        except OptimizationError as exc:
+            raise InvalidStrategyParamsError(
+                f"Целевое значение недостижимо для выбранной стратегии: {exc}"
+            ) from exc
         return result
 
     async def _enrich_position(
@@ -447,8 +463,17 @@ def _run_optimization(
     prices_data: dict[str, list[tuple[date, Decimal]]],
     imoex_series: list[tuple[date, Decimal]],
     annual_rate: float,
+    strategy: OptimizationStrategy = OptimizationStrategy.MAX_SHARPE,
+    target_return: float | None = None,
+    target_volatility: float | None = None,
+    risk_aversion: float | None = None,
 ) -> OptimizeResult:
-    """Синхронная обёртка для CPU-bound оптимизации (вызывается через threadpool)."""
+    """Синхронная обёртка для CPU-bound оптимизации (вызывается через threadpool).
+
+    Raises:
+        ValueError: недостаточно тикеров/дат или отсутствует обязательный параметр стратегии.
+        pypfopt.OptimizationError: целевое значение нефeasible — caller маппирует в 422.
+    """
     if len(prices_data) < _MIN_TICKERS_FOR_OPTIMIZE:
         raise ValueError("Для оптимизации портфеля нужно не менее 2 тикеров")
 
@@ -473,20 +498,30 @@ def _run_optimization(
 
     prices_df = pd.DataFrame(data_dict, index=pd.DatetimeIndex(common_dates))
 
-    max_sharpe_w = opt.build_max_sharpe_weights(prices_df, annual_rate)
-    min_vol_w = opt.build_min_volatility_weights(prices_df)
+    weights = opt.build_weights_for_strategy(
+        prices_df,
+        strategy=strategy,
+        annual_rate=annual_rate,
+        target_return=target_return,
+        target_volatility=target_volatility,
+        risk_aversion=risk_aversion,
+    )
+    ret, vol, sharpe_val = opt.compute_portfolio_performance(prices_df, weights, annual_rate)
+
     frontier_raw = opt.compute_frontier_points(prices_df)
     frontier = [FrontierPoint(volatility=v, expected_return=r) for v, r in frontier_raw]
 
     n = len(prices_data)
-    equal_weights = dict.fromkeys(prices_data, 1.0 / n)
-    _, _, equal_sharpe = opt.compute_portfolio_performance(prices_df, equal_weights, annual_rate)
-
+    equal_w = dict.fromkeys(prices_data, 1.0 / n)
+    _, _, equal_sharpe = opt.compute_portfolio_performance(prices_df, equal_w, annual_rate)
     imoex_sharpe_val = _compute_imoex_sharpe(imoex_series, annual_rate)
 
     return OptimizeResult(
-        max_sharpe_weights=max_sharpe_w,
-        min_volatility_weights=min_vol_w,
+        strategy=strategy,
+        weights=weights,
+        expected_return=ret,
+        volatility=vol,
+        sharpe=sharpe_val,
         frontier=frontier,
         equal_weight_sharpe=equal_sharpe,
         imoex_sharpe=imoex_sharpe_val,

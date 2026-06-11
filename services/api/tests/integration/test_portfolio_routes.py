@@ -35,6 +35,7 @@ def _recent_weekdays(n: int, offset_days: int = 0) -> list[date]:
 
 _SUMMARY_DATES = _recent_weekdays(14, offset_days=25)
 _OPTIMIZE_DATES = _recent_weekdays(15, offset_days=60)
+_OPTIMIZE_DATES_B = _recent_weekdays(15, offset_days=120)
 
 
 async def test_upsert_position_then_list_returns_it(
@@ -171,10 +172,10 @@ async def test_portfolio_summary_period_too_short_does_not_crash(
     assert resp.status_code in (200, 422)
 
 
-async def test_portfolio_optimize_returns_weights_summing_to_one(
+async def test_portfolio_optimize_default_strategy_returns_new_shape(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    """POST /portfolio/optimize: веса обоих результатов суммируются ≈ 1."""
+    """POST /portfolio/optimize (strategy=max_sharpe по умолчанию): новая форма ответа."""
     sec1 = await seed_security(db_session, ticker="OPT_A")
     sec2 = await seed_security(db_session, ticker="OPT_B")
     await seed_candles_range(db_session, sec1.id, _OPTIMIZE_DATES, Decimal("100.00"))
@@ -190,13 +191,39 @@ async def test_portfolio_optimize_returns_weights_summing_to_one(
     assert resp.status_code == 200, resp.text
     data = resp.json()
 
-    max_sum = sum(data["max_sharpe_weights"].values())
-    min_sum = sum(data["min_volatility_weights"].values())
-    assert abs(max_sum - 1.0) < 0.01, f"max_sharpe сумма весов = {max_sum}"
-    assert abs(min_sum - 1.0) < 0.01, f"min_vol сумма весов = {min_sum}"
+    assert data["strategy"] == "max_sharpe"
+    weights_sum = sum(data["weights"].values())
+    assert abs(weights_sum - 1.0) < 0.01, f"Сумма весов = {weights_sum}"
+    assert isinstance(data["expected_return"], float)
+    assert isinstance(data["volatility"], float)
+    assert isinstance(data["sharpe"], float)
     assert isinstance(data["frontier"], list)
     assert "equal_weight_sharpe" in data
     assert "imoex_sharpe" in data
+
+
+async def test_portfolio_optimize_min_volatility_strategy(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """POST /portfolio/optimize strategy=min_volatility: веса суммируются ≈ 1."""
+    sec1 = await seed_security(db_session, ticker="OPT_C")
+    sec2 = await seed_security(db_session, ticker="OPT_D")
+    await seed_candles_range(db_session, sec1.id, _OPTIMIZE_DATES_B, Decimal("150.00"))
+    await seed_candles_range(db_session, sec2.id, _OPTIMIZE_DATES_B, Decimal("250.00"))
+    await seed_index_values_range(db_session, _OPTIMIZE_DATES_B)
+    await seed_key_rate(db_session, rate_date=_OPTIMIZE_DATES_B[0])
+    await db_session.commit()
+
+    resp = await client.post(
+        "/api/v1/portfolio/optimize",
+        json={"tickers": ["OPT_C", "OPT_D"], "period_days": 180, "strategy": "min_volatility"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+
+    assert data["strategy"] == "min_volatility"
+    weights_sum = sum(data["weights"].values())
+    assert abs(weights_sum - 1.0) < 0.01, f"Сумма весов min_vol = {weights_sum}"
 
 
 async def test_portfolio_optimize_single_ticker_returns_422(

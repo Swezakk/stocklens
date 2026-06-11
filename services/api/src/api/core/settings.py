@@ -20,6 +20,8 @@ class ApiSettings(BaseSettings):
     - CACHE_TTL_DEFAULT_SECONDS — TTL кэша прочих ресурсов (сек.)
     - SCHEMA_WAIT_ATTEMPTS      — число попыток ожидания готовности схемы БД
     - SCHEMA_WAIT_INTERVAL_SECONDS — пауза между попытками (сек.)
+    - WATCHLIST_GRACE_SECONDS  — TTL «ожидания материализации» (сек.), после которого
+                                  статус PENDING → NOT_FOUND если данных так и нет
     """
 
     database_url_async: PostgresDsn
@@ -29,6 +31,7 @@ class ApiSettings(BaseSettings):
     cache_ttl_default_seconds: int = 300
     schema_wait_attempts: int = 30
     schema_wait_interval_seconds: float = 2.0
+    watchlist_grace_seconds: int = 3600
 
     model_config = {
         "case_sensitive": False,

@@ -12,7 +12,7 @@ from stocklens_core.enums import AlertKind, CollectorRunStatus, SentimentLabel
 from stocklens_core.models.market import Dividend, Security
 from stocklens_core.models.news import NewsArticle, NewsSentiment
 from stocklens_core.models.operations import CollectorRun
-from stocklens_core.models.portfolio import BotSubscription, PortfolioPosition
+from stocklens_core.models.portfolio import BotSubscription, PortfolioPosition, Watchlist
 
 from api.schemas.market import CandleOut
 
@@ -180,4 +180,32 @@ class BotSubscriptionRepository(Protocol):
 
     async def delete(self, sub_id: int) -> bool:
         """Удалить подписку по id. Возвращает True если строка существовала. Коммитит."""
+        ...
+
+
+class WatchlistRepository(Protocol):
+    """Чтение и запись списка наблюдения. API — единственный write-путь (спека §4)."""
+
+    async def list_items(self) -> list[Watchlist]:
+        """Вернуть все элементы вотчлиста, сортировка по added_at asc."""
+        ...
+
+    async def get_by_ticker(self, ticker: str) -> Watchlist | None:
+        """Найти элемент по тикеру."""
+        ...
+
+    async def add(self, ticker: str) -> Watchlist:
+        """Добавить тикер. Коммитит. При дубле — unique violation (caller ловит)."""
+        ...
+
+    async def delete(self, ticker: str) -> bool:
+        """Удалить тикер. Возвращает True если строка существовала. Коммитит."""
+        ...
+
+    async def security_exists(self, ticker: str) -> bool:
+        """Вернуть True если бумага с тикером существует в securities."""
+        ...
+
+    async def has_candles(self, ticker: str) -> bool:
+        """Вернуть True если у бумаги есть хотя бы одна свеча."""
         ...

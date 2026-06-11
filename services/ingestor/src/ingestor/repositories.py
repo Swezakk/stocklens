@@ -7,7 +7,7 @@
 from datetime import date, datetime
 
 import structlog
-from sqlalchemy import select, update
+from sqlalchemy import select, union, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from stocklens_core.enums import Currency, SentimentLabel
@@ -21,7 +21,7 @@ from stocklens_core.models.market import (
     Split,
 )
 from stocklens_core.models.news import NewsArticle, NewsSentiment, NewsTicker
-from stocklens_core.models.portfolio import PortfolioPosition
+from stocklens_core.models.portfolio import PortfolioPosition, Watchlist
 
 from ingestor.parsing import (
     ParsedCandle,
@@ -38,22 +38,23 @@ def upsert_securities(
     items: list[ParsedConstituent],
     deactivate_missing: bool,
     alias_seed: dict[str, list[str]] | None = None,
+    protected_tickers: set[str] | None = None,
 ) -> int:
     """Синхронизировать список ценных бумаг с таблицей securities.
 
     Для каждого тикера: обновляет name и board, выставляет is_active=True.
-    Деактивация (is_active=False) бумаг, отсутствующих в списке, выполняется
-    только при deactivate_missing=True — вызывающий устанавливает этот флаг
-    лишь после полного успешного получения состава индекса (len >= 30).
-
-    Если передан alias_seed, псевдонимы мержатся с уже сохранёнными через union —
-    существующие вручную добавленные псевдонимы никогда не удаляются.
+    Деактивация (is_active=False) выполняется только при deactivate_missing=True
+    и только для бумаг, НЕ входящих ни в items, ни в protected_tickers.
+    protected_tickers должен содержать union(watchlist_tickers, portfolio_tickers) —
+    иначе бумага из вотчлиста (но не из индекса) будет ложно деактивирована.
 
     Args:
         session: Синхронная SQLAlchemy-сессия.
         items: Список распарсенных компонентов индекса.
         deactivate_missing: Деактивировать бумаги, не вошедшие в список.
         alias_seed: Словарь тикер → список псевдонимов для мержа.
+        protected_tickers: Тикеры, которые нельзя деактивировать
+            (вотчлист + портфель). None → защиты нет.
 
     Returns:
         Количество затронутых строк.
@@ -78,10 +79,11 @@ def upsert_securities(
         _merge_aliases(session, alias_seed)
 
     if deactivate_missing:
+        excluded: set[str] = set(tickers) | (protected_tickers or set())
         session.execute(
-            update(Security).where(Security.ticker.notin_(tickers)).values(is_active=False)
+            update(Security).where(Security.ticker.notin_(excluded)).values(is_active=False)
         )
-        log.info("securities_deactivated", active_tickers=tickers)
+        log.info("securities_deactivated", active_tickers=tickers, protected=protected_tickers)
 
     return len(values)
 
@@ -325,16 +327,16 @@ def last_index_date(session: Session, index_code: str) -> date | None:
 
 
 def collection_tickers(session: Session) -> list[tuple[str, int]]:
-    """Вернуть тикеры для сбора: активные бумаги UNION бумаги из портфеля.
+    """Вернуть тикеры для сбора: активные UNION портфель UNION вотчлист.
 
-    Бумага, вышедшая из индекса (is_active=False), но удерживаемая в портфеле,
-    продолжает собираться для корректного расчёта P&L.
+    Бумага, вышедшая из индекса, но удерживаемая в портфеле или добавленная
+    в вотчлист, продолжает собираться — P&L и мониторинг не прерываются.
 
     Args:
         session: Синхронная SQLAlchemy-сессия.
 
     Returns:
-        Список пар (ticker, security_id).
+        Список пар (ticker, security_id). Дубли исключены через UNION.
     """
     active_q = select(Security.ticker, Security.id).where(Security.is_active.is_(True))
 
@@ -344,8 +346,28 @@ def collection_tickers(session: Session) -> list[tuple[str, int]]:
         .where(Security.is_active.is_(False))
     )
 
-    rows = session.execute(active_q.union(portfolio_q)).all()
+    watchlist_q = (
+        select(Security.ticker, Security.id)
+        .join(Watchlist, Watchlist.ticker == Security.ticker)
+        .where(Security.is_active.is_(False))
+    )
+
+    combined = union(active_q, portfolio_q, watchlist_q)
+    rows = session.execute(combined).all()
     return [(str(r[0]), int(r[1])) for r in rows]
+
+
+def watchlist_tickers(session: Session) -> set[str]:
+    """Вернуть множество тикеров из списка наблюдения.
+
+    Args:
+        session: Синхронная SQLAlchemy-сессия.
+
+    Returns:
+        Множество строковых тикеров из таблицы watchlist.
+    """
+    rows = session.execute(select(Watchlist.ticker)).scalars().all()
+    return set(rows)
 
 
 def get_known_tickers(session: Session) -> set[str]:

@@ -7,7 +7,10 @@
 from datetime import timedelta
 
 import structlog
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
+from stocklens_core.models.market import Security
+from stocklens_core.models.portfolio import PortfolioPosition
 
 from ingestor import heartbeat
 from ingestor.aliases_seed import TICKER_ALIASES
@@ -29,6 +32,7 @@ from ingestor.repositories import (
     upsert_index_values,
     upsert_securities,
     upsert_splits,
+    watchlist_tickers,
 )
 from ingestor.run_journal import collector_run
 from ingestor.settings import IngestorSettings
@@ -66,14 +70,24 @@ def sync_securities(
                 "analytics",
             )
             constituents = [parse_constituent(r) for r in rows]
+            index_tickers = {c.ticker for c in constituents}
             deactivate = len(constituents) >= _MIN_CONSTITUENTS_FOR_DEACTIVATION
 
             with session_factory() as session:
+                wl_tickers = watchlist_tickers(session)
+
+            extra_constituents = _fetch_watchlist_extras(client, wl_tickers, index_tickers)
+            all_constituents = constituents + extra_constituents
+
+            with session_factory() as session:
+                portfolio_tickers = _portfolio_held_tickers(session)
+                protected = wl_tickers | portfolio_tickers
                 added = upsert_securities(
                     session,
-                    constituents,
+                    all_constituents,
                     deactivate_missing=deactivate,
                     alias_seed=TICKER_ALIASES,
+                    protected_tickers=protected,
                 )
                 session.commit()
             journal.add_records(added)
@@ -81,6 +95,7 @@ def sync_securities(
             log.info(
                 "securities_synced",
                 count=len(constituents),
+                watchlist_extras=len(extra_constituents),
                 deactivated_missing=deactivate,
             )
         else:
@@ -250,6 +265,72 @@ def sync_splits(
 
         journal.add_records(added)
         log.info("splits_sync_done", records=added)
+
+
+def _fetch_watchlist_extras(
+    client: MoexIssClient,
+    wl_tickers: set[str],
+    index_tickers: set[str],
+) -> list[ParsedConstituent]:
+    """Запросить MOEX /securities/{ticker}.json для вотчлист-тикеров вне индекса.
+
+    Тикер с HTTP 404 или пустым ответом логируется как warning и пропускается —
+    он не попадёт в БД, но запуск sync_securities не считается сбоем.
+
+    Args:
+        client: Клиент MOEX ISS.
+        wl_tickers: Тикеры из вотчлиста.
+        index_tickers: Тикеры, уже присутствующие в составе индекса.
+
+    Returns:
+        Список ParsedConstituent для тикеров вне индекса.
+    """
+    extras: list[ParsedConstituent] = []
+    for ticker in sorted(wl_tickers - index_tickers):
+        try:
+            desc_rows = client.fetch_block(
+                f"securities/{ticker}.json",
+                "description",
+            )
+        except Exception:
+            log.warning("watchlist_ticker_fetch_failed", ticker=ticker)
+            continue
+
+        if not desc_rows:
+            log.warning("watchlist_ticker_not_found_on_moex", ticker=ticker)
+            continue
+
+        name = ticker
+        for row in desc_rows:
+            if str(row.get("name", "")).upper() == "SHORTNAME":
+                name = str(row.get("value", ticker))
+                break
+
+        extras.append(ParsedConstituent(ticker=ticker, name=name))
+        log.info("watchlist_ticker_materialized", ticker=ticker, name=name)
+
+    return extras
+
+
+def _portfolio_held_tickers(session: Session) -> set[str]:
+    """Вернуть тикеры бумаг, удерживаемых в портфеле (через JOIN с securities).
+
+    Args:
+        session: Синхронная SQLAlchemy-сессия.
+
+    Returns:
+        Множество тикеров.
+    """
+    rows = (
+        session.execute(
+            select(Security.ticker).join(
+                PortfolioPosition, PortfolioPosition.security_id == Security.id
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {str(r) for r in rows}
 
 
 def run_all_collectors(

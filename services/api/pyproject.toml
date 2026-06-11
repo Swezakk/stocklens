@@ -16,6 +16,9 @@ dependencies = [
     "numpy>=2.4",
     "pandas>=3",
     "scipy>=1.17",
+    # pypfopt → skbase импортирует packaging в runtime, но не объявляет его как
+    # hard-зависимость; в dev-окружении он присутствует транзитивно, в prod (--no-dev) — нет.
+    "packaging>=24",
 ]
 
 [dependency-groups]

@@ -127,12 +127,16 @@ jobs:
       - name: docker compose build
         run: docker compose build
 
-      # Регрессия: образы собирались, но не запускались — shebang консольных скриптов
-      # (alembic/uvicorn) ломался при копировании venv. Проверяем, что они стартуют.
-      - name: smoke — консольные скрипты в образах работают
+      # Регрессия: образы собирались, но не запускались. Ловим два класса багов prod-образа,
+      # невидимых в dev/тестах: (1) сломанный shebang консольных скриптов (alembic/uvicorn);
+      # (2) runtime-зависимость, присутствующая только в dev (--no-dev её отсекает, напр.
+      # packaging для pypfopt). Поэтому реально импортируем приложение, а не только --version.
+      - name: smoke — образы стартуют и приложения импортируются
         run: |
           docker compose run --rm --no-deps migrations alembic --version
           docker compose run --rm --no-deps api uvicorn --version
+          docker compose run --rm --no-deps api python -c "from api.main import create_app; create_app()"
+          docker compose run --rm --no-deps ingestor python -c "import ingestor; import ingestor.sentiment"
 
   publish:
     name: publish images (GHCR)

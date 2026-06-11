@@ -34,6 +34,46 @@ services:
     # Однократный запуск: завершается после применения миграций.
     restart: "no"
 
+  redis:
+    image: redis:7-alpine
+    # Чистый кэш без персистентности: LRU-вытеснение не даёт памяти расти
+    # неограниченно при множестве ключей свечей (разные тикеры и диапазоны дат).
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    environment:
+      DATABASE_URL_ASYNC: ${DATABASE_URL_ASYNC}
+      REDIS_URL: ${REDIS_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/ready')\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+
   ingestor:
     build:
       context: .

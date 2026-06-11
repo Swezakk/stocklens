@@ -34,7 +34,7 @@
 на месте. Реализация идёт по фазам:
 
 1. `packages/stocklens-core` — модели данных, enum'ы, настройки — **готово**
-2. Alembic-миграции + PostgreSQL в Compose
+2. Alembic-миграции + PostgreSQL в Compose — **готово**
 3. `services/ingestor` — сбор MOEX
 4. RSS + sentiment, ЦБ РФ
 5. `services/api` — FastAPI
@@ -42,4 +42,19 @@
 
 ## Запуск
 
-Появится вместе с первым сервисом: целевая команда — `docker compose up --build`.
+Пока поднят фундамент стека — БД и миграции (полный `docker compose up --build`
+появится по мере добавления сервисов):
+
+```bash
+cp .env.example .env           # задать DB_PASSWORD и прочие секреты
+docker compose up -d db        # PostgreSQL 16 (только 127.0.0.1:5432)
+uv sync                        # корневое окружение (alembic + stocklens-core)
+DATABASE_URL=postgresql+psycopg://stocklens:<пароль>@localhost:5432/stocklens \
+  uv run alembic upgrade head  # применить миграции схемы
+```
+
+Интеграционные тесты миграций (нужен Docker):
+
+```bash
+uv run pytest tests -m integration
+```

@@ -142,7 +142,13 @@ Conventional Commits: `type(scope)` на английском, описание 
 - `uv sync --project packages/stocklens-core` — окружение пакета core.
 - `uv run --project packages/stocklens-core pytest packages/stocklens-core/tests` — тесты core.
 - `uv run --project packages/stocklens-core mypy packages/stocklens-core/src packages/stocklens-core/tests` — типизация core.
+- `uv sync` — корневое окружение (alembic, psycopg, testcontainers, stocklens-core editable).
+- `docker compose up -d db` — локальный PostgreSQL 16 (loopback 5432).
+- `DATABASE_URL=postgresql+psycopg://…@localhost:5432/stocklens uv run alembic upgrade head` — миграции.
+- `uv run pytest tests -m integration` — интеграционные тесты миграций (нужен Docker).
+  **Всегда с явным путём `tests`**: голый `uv run pytest` из корня соберёт по `testpaths`
+  ещё и тесты пакетов в чужом для них окружении.
+- `uv run mypy alembic tests` — типизация корневого слоя (alembic + интеграционные тесты).
 - `uvx ruff check .` / `uvx ruff format --check .` — линт всего репозитория.
 - Целевой набор после появления сервисов: `docker compose up --build` (весь стек),
-  аналогичные `uv … --project services/<имя>` команды на сервис,
-  `uv run alembic upgrade head` (миграции, из корня).
+  аналогичные `uv … --project services/<имя>` команды на сервис.

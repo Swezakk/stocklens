@@ -91,6 +91,30 @@ jobs:
           uv run --project services/ingestor
           mypy services/ingestor/src services/ingestor/tests
 
+  api:
+    name: api (pytest + mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: uv sync
+        run: uv sync --project services/api
+
+      - name: pytest (coverage >= 50%, integration в testcontainers)
+        run: >
+          uv run --project services/api
+          pytest services/api/tests
+          --cov=api --cov-fail-under=50
+
+      - name: mypy strict
+        run: >
+          uv run --project services/api
+          mypy services/api/src services/api/tests
+
   build:
     name: docker compose build
     runs-on: ubuntu-latest

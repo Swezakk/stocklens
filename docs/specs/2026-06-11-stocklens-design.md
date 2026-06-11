@@ -150,6 +150,7 @@ stocklens/
 | `splits` | `security_id`, `split_date`, `before`, `after` | дробления/консолидации (uniq `(security_id, split_date)`); без коррекции на сплит история цен ломает расчёт доходностей |
 | `index_values` | `index_code`, `trade_date`, `close` | IMOEX как бенчмарк |
 | `currency_rates` | `currency`, `rate_date`, `rate` | ЦБ РФ |
+| `key_rates` | `rate_date` (uniq), `rate` | ключевая ставка ЦБ РФ (KeyRate XML); для KPI-карточки дашборда |
 | `news_articles` | `id`, `source`, `url` (uniq), `title`, `summary`, `published_at` | дедупликация по url |
 | `news_sentiment` | `article_id`, `label`, `score`, `model_version` | label: `StrEnum` positive/neutral/negative |
 | `news_tickers` | `article_id`, `security_id` | связь новость↔бумага по словарю aliases |

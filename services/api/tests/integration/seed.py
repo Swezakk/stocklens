@@ -4,10 +4,11 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from stocklens_core.enums import CollectorRunStatus, Currency, SentimentLabel
-from stocklens_core.models.market import Candle, Dividend, Security
+from stocklens_core.enums import AlertKind, CollectorRunStatus, Currency, SentimentLabel
+from stocklens_core.models.market import Candle, Dividend, IndexValue, KeyRate, Security
 from stocklens_core.models.news import NewsArticle, NewsSentiment, NewsTicker
 from stocklens_core.models.operations import CollectorRun
+from stocklens_core.models.portfolio import BotSubscription, PortfolioPosition
 
 
 async def seed_security(
@@ -74,6 +75,115 @@ async def seed_collector_run(
     session.add(run)
     await session.flush()
     return run
+
+
+async def seed_candles_range(
+    session: AsyncSession,
+    security_id: int,
+    dates: list[date],
+    base_price: Decimal = Decimal("280.00"),
+) -> list[Candle]:
+    """Засеять несколько свечей для ценового ряда."""
+    candles = []
+    price = base_price
+    for i, trade_date in enumerate(dates):
+        price = price + Decimal(str(i % 5 - 2))  # небольшая вариация для ненулевого std
+        c = Candle(
+            security_id=security_id,
+            trade_date=trade_date,
+            open=price - Decimal("1.00"),
+            high=price + Decimal("2.00"),
+            low=price - Decimal("2.00"),
+            close=price,
+            volume=1_000_000,
+            value=price * Decimal("1000000"),
+            is_weekend_session=False,
+        )
+        session.add(c)
+        candles.append(c)
+    await session.flush()
+    return candles
+
+
+async def seed_index_value(
+    session: AsyncSession,
+    trade_date: date = date(2024, 1, 15),
+    close: Decimal = Decimal("3200.00"),
+    index_code: str = "IMOEX",
+) -> IndexValue:
+    """Засеять значение биржевого индекса."""
+    iv = IndexValue(index_code=index_code, trade_date=trade_date, close=close)
+    session.add(iv)
+    await session.flush()
+    return iv
+
+
+async def seed_index_values_range(
+    session: AsyncSession,
+    dates: list[date],
+    base_close: Decimal = Decimal("3200.00"),
+    index_code: str = "IMOEX",
+) -> list[IndexValue]:
+    """Засеять ряд значений индекса."""
+    values = []
+    close = base_close
+    for i, trade_date in enumerate(dates):
+        close = close + Decimal(str(i % 3 - 1))
+        iv = IndexValue(index_code=index_code, trade_date=trade_date, close=close)
+        session.add(iv)
+        values.append(iv)
+    await session.flush()
+    return values
+
+
+async def seed_key_rate(
+    session: AsyncSession,
+    rate_date: date = date(2024, 1, 1),
+    rate: Decimal = Decimal("16.00"),
+) -> KeyRate:
+    """Засеять ключевую ставку ЦБ РФ."""
+    kr = KeyRate(rate_date=rate_date, rate=rate)
+    session.add(kr)
+    await session.flush()
+    return kr
+
+
+async def seed_portfolio_position(
+    session: AsyncSession,
+    security_id: int,
+    quantity: int = 100,
+    avg_price: Decimal = Decimal("280.00"),
+    opened_at: datetime | None = None,
+) -> PortfolioPosition:
+    """Засеять позицию портфеля."""
+    if opened_at is None:
+        opened_at = datetime(2024, 1, 1, tzinfo=UTC)
+    pos = PortfolioPosition(
+        security_id=security_id,
+        quantity=quantity,
+        avg_price=avg_price,
+        opened_at=opened_at,
+    )
+    session.add(pos)
+    await session.flush()
+    return pos
+
+
+async def seed_bot_subscription(
+    session: AsyncSession,
+    chat_id: int = 12345,
+    kind: AlertKind = AlertKind.SENTIMENT_SPIKE,
+    params: dict[str, object] | None = None,
+) -> BotSubscription:
+    """Засеять Telegram-подписку."""
+    sub = BotSubscription(
+        chat_id=chat_id,
+        kind=kind,
+        params=params or {},
+    )
+    session.add(sub)
+    await session.flush()
+    return sub
 
 
 async def seed_news_with_sentiment(

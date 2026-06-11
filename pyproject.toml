@@ -68,7 +68,8 @@ pretty = true
 [[tool.mypy.overrides]]
 # Нетипизированные сторонние границы (нет py.typed/стабов): testcontainers —
 # интеграционные тесты; apscheduler 3.x — планировщик; feedparser (стабы
-# types-feedparser неполные), onnxruntime/tokenizers/optimum — sentiment-инференс.
+# types-feedparser неполные), onnxruntime/tokenizers/optimum — sentiment-инференс;
+# pandas (требует pandas-stubs), pypfopt — портфельная оптимизация.
 module = [
     "testcontainers.*",
     "apscheduler.*",
@@ -80,6 +81,10 @@ module = [
     "tokenizers.*",
     "optimum",
     "optimum.*",
+    "pandas",
+    "pandas.*",
+    "pypfopt",
+    "pypfopt.*",
 ]
 ignore_missing_imports = true
 

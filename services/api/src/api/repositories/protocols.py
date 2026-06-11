@@ -4,13 +4,15 @@
 unit-тесты подменяют реализации фиктивными объектами без подъёма БД.
 """
 
-from datetime import date
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Protocol
 
-from stocklens_core.enums import CollectorRunStatus, SentimentLabel
+from stocklens_core.enums import AlertKind, CollectorRunStatus, SentimentLabel
 from stocklens_core.models.market import Dividend, Security
 from stocklens_core.models.news import NewsArticle, NewsSentiment
 from stocklens_core.models.operations import CollectorRun
+from stocklens_core.models.portfolio import BotSubscription, PortfolioPosition
 
 from api.schemas.market import CandleOut
 
@@ -91,4 +93,91 @@ class MonitoringRepository(Protocol):
         offset: int,
     ) -> tuple[list[CollectorRun], int]:
         """Вернуть страницу запусков сборщиков (сортировка: started_at desc) и общее число."""
+        ...
+
+
+class PortfolioRepository(Protocol):
+    """Чтение и запись позиций портфеля. Каждая бумага — одна агрегированная позиция."""
+
+    async def list_positions(self) -> list[PortfolioPosition]:
+        """Вернуть все позиции портфеля."""
+        ...
+
+    async def get_position(self, security_id: int) -> PortfolioPosition | None:
+        """Найти позицию по security_id."""
+        ...
+
+    async def upsert_position(
+        self,
+        security_id: int,
+        quantity: int,
+        avg_price: Decimal,
+        opened_at: datetime,
+    ) -> PortfolioPosition:
+        """Создать или обновить позицию. Коммитит транзакцию."""
+        ...
+
+    async def delete_position(self, security_id: int) -> bool:
+        """Удалить позицию. Возвращает True если строка существовала. Коммитит транзакцию."""
+        ...
+
+
+class MarketHistoryRepository(Protocol):
+    """Чтение исторических рыночных данных для аналитики.
+
+    Все методы исключают сессии выходного дня (is_weekend_session=True).
+    """
+
+    async def close_series(
+        self,
+        security_id: int,
+        date_from: date,
+        date_to: date,
+    ) -> list[tuple[date, Decimal]]:
+        """Вернуть ряд цен закрытия (дата, цена), отсортированный по дате.
+
+        Исключает записи с is_weekend_session=True.
+        """
+        ...
+
+    async def dividends_map(
+        self,
+        security_id: int,
+        date_from: date,
+        date_to: date,
+    ) -> dict[date, Decimal]:
+        """Вернуть словарь {ex_date: дивиденд} в заданном диапазоне дат."""
+        ...
+
+    async def imoex_series(
+        self,
+        date_from: date,
+        date_to: date,
+    ) -> list[tuple[date, Decimal]]:
+        """Вернуть ряд значений индекса IMOEX (дата, close), сортировка по дате."""
+        ...
+
+    async def latest_key_rate(self) -> Decimal | None:
+        """Вернуть последнее значение ключевой ставки ЦБ РФ (в процентах, напр. 16.00)."""
+        ...
+
+
+class BotSubscriptionRepository(Protocol):
+    """Чтение и запись Telegram-подписок на алерты."""
+
+    async def list_by_chat(self, chat_id: int) -> list[BotSubscription]:
+        """Вернуть все подписки для указанного chat_id."""
+        ...
+
+    async def create(
+        self,
+        chat_id: int,
+        kind: AlertKind,
+        params: dict[str, object],
+    ) -> BotSubscription:
+        """Создать подписку. Коммитит транзакцию."""
+        ...
+
+    async def delete(self, sub_id: int) -> bool:
+        """Удалить подписку по id. Возвращает True если строка существовала. Коммитит."""
         ...

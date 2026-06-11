@@ -53,6 +53,30 @@ class InsufficientDataError(ApiError):
         super().__init__(detail)
 
 
+class PositionNotFoundError(ApiError):
+    """Позиция по указанному тикеру не найдена в портфеле."""
+
+    status = 404
+    title = "Позиция не найдена"
+    problem_type = "https://stocklens.local/problems/position-not-found"
+
+    def __init__(self, ticker: str) -> None:
+        super().__init__(f"Позиция по тикеру {ticker!r} не найдена")
+        self.ticker = ticker
+
+
+class SubscriptionNotFoundError(ApiError):
+    """Подписка с указанным идентификатором не найдена."""
+
+    status = 404
+    title = "Подписка не найдена"
+    problem_type = "https://stocklens.local/problems/subscription-not-found"
+
+    def __init__(self, sub_id: int) -> None:
+        super().__init__(f"Подписка {sub_id} не найдена")
+        self.sub_id = sub_id
+
+
 class SchemaNotReadyError(Exception):
     """БД не готова к работе: схема не применена после N попыток."""
 

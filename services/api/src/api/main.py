@@ -7,7 +7,7 @@ from api.core.logging import configure_logging
 from api.core.middleware import RequestIdMiddleware
 from api.core.problem import install_exception_handlers
 from api.core.settings import ApiSettings
-from api.routers import data, health, monitoring
+from api.routers import bot, data, health, monitoring, portfolio
 
 
 def create_app() -> FastAPI:
@@ -35,5 +35,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(data.router)
     app.include_router(monitoring.router)
+    app.include_router(portfolio.router)
+    app.include_router(bot.router)
 
     return app

@@ -1,5 +1,30 @@
-# Корневой конфиг инструментов качества — общий для всех пакетов и сервисов.
-# Зависимости живут в pyproject.toml каждого сервиса (uv), не здесь.
+# Корневой проект: Alembic-миграции (модели из stocklens-core) и общий конфиг
+# инструментов качества. Зависимости сервисов живут в их pyproject.toml (uv),
+# workspace не используется — у каждого компонента свой uv.lock.
+
+[project]
+name = "stocklens"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.18.4,<2",
+    "psycopg[binary]>=3.3",
+    "stocklens-core",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9",
+    "pytest-cov>=6",
+    "mypy>=2.1",
+    "testcontainers[postgres]>=4.14",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+stocklens-core = { path = "packages/stocklens-core", editable = true }
 
 [tool.ruff]
 target-version = "py312"
@@ -39,6 +64,12 @@ strict = true
 warn_unreachable = true
 show_error_codes = true
 pretty = true
+
+[[tool.mypy.overrides]]
+# testcontainers не поставляет py.typed/стабы — единственная нетипизированная
+# граница; используется только в интеграционных тестах.
+module = "testcontainers.*"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["packages", "services", "tests"]

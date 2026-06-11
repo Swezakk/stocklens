@@ -35,26 +35,37 @@
 
 1. `packages/stocklens-core` — модели данных, enum'ы, настройки — **готово**
 2. Alembic-миграции + PostgreSQL в Compose — **готово**
-3. `services/ingestor` — сбор MOEX
+3. `services/ingestor` — сбор MOEX — **готово**
 4. RSS + sentiment, ЦБ РФ
 5. `services/api` — FastAPI
 6. `services/dashboard`, `services/bot`, ML-пайплайн, деплой (Dokploy)
 
 ## Запуск
 
-Пока поднят фундамент стека — БД и миграции (полный `docker compose up --build`
-появится по мере добавления сервисов):
+Скелет стека (БД → миграции → сборщик MOEX) поднимается одной командой;
+остальные сервисы добавятся по фазам:
 
 ```bash
-cp .env.example .env           # задать DB_PASSWORD и прочие секреты
-docker compose up -d db        # PostgreSQL 16 (только 127.0.0.1:5432)
-uv sync                        # корневое окружение (alembic + stocklens-core)
-DATABASE_URL=postgresql+psycopg://stocklens:<пароль>@localhost:5432/stocklens \
-  uv run alembic upgrade head  # применить миграции схемы
+cp .env.example .env             # задать DB_PASSWORD и прочие секреты
+docker compose up -d --build     # db → migrations (alembic) → ingestor
 ```
 
-Интеграционные тесты миграций (нужен Docker):
+При первом старте ingestor выполняет backfill всей истории котировок
+(~46 бумаг IMOEX, ≤1 запрос/сек к MOEX ISS — порядка 25 минут), далее
+работает по расписанию: свечи и индекс — 23:55 МСК, справочник бумаг,
+дивиденды и сплиты — 08:00.
+
+Миграции с хоста (опционально, против compose-БД):
 
 ```bash
-uv run pytest tests -m integration
+uv sync
+DATABASE_URL=postgresql+psycopg://stocklens:<пароль>@localhost:5432/stocklens \
+  uv run alembic upgrade head
+```
+
+Интеграционные тесты (нужен Docker):
+
+```bash
+uv run pytest tests -m integration                            # миграции
+uv run --project services/ingestor pytest services/ingestor/tests  # ingestor
 ```

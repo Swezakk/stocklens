@@ -151,7 +151,9 @@ Conventional Commits: `type(scope)` на английском, описание 
 - `uv run mypy alembic tests` — типизация корневого слоя (alembic + интеграционные тесты).
 - `uv sync --project services/ingestor` / `uv run --project services/ingestor pytest services/ingestor/tests`
   / `… mypy services/ingestor/src services/ingestor/tests` — сервис ingestor.
-- `docker compose up -d --build` — скелет стека: db → migrations → ingestor.
+- `uv sync --project services/api` / `uv run --project services/api pytest services/api/tests`
+  / `… mypy services/api/src services/api/tests` — сервис api (async, testcontainers PG+Redis).
+- `docker compose up -d --build` — стек: db → migrations → ingestor → redis → api.
 - `uvx ruff check .` / `uvx ruff format --check .` — линт всего репозитория.
 - Python субпроектов пиннится локальным `.python-version` (3.12) в каждом
   пакете/сервисе — `uv sync --project` не наследует корневой пин.

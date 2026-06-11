@@ -37,7 +37,8 @@
 2. Alembic-миграции + PostgreSQL в Compose — **готово**
 3. `services/ingestor` — сбор MOEX — **готово**
 4. RSS + sentiment, ЦБ РФ — **готово**
-5. `services/api` — FastAPI
+5. `services/api` — FastAPI (слоистый async, читающие эндпоинты + кэш) — **частично:**
+   фундамент и `data/*` готовы; портфель и прогнозы — следующие подфазы
 6. `services/dashboard`, `services/bot`, ML-пайплайн, деплой (Dokploy)
 
 ## Запуск
@@ -47,8 +48,12 @@
 
 ```bash
 cp .env.example .env             # задать DB_PASSWORD и прочие секреты
-docker compose up -d --build     # db → migrations (alembic) → ingestor
+docker compose up -d --build     # db → migrations → ingestor → redis → api
 ```
+
+API доступен на `http://localhost:8000` (Swagger — `/docs`); читающие
+эндпоинты под `/api/v1/data/*`, мониторинг сборов — `/api/v1/monitoring/runs`,
+проверки здоровья — `/api/v1/health/live` и `/api/v1/health/ready`.
 
 При первом старте ingestor выполняет backfill всей истории котировок
 (~46 бумаг IMOEX, ≤1 запрос/сек к MOEX ISS — порядка 25 минут) и курсов ЦБ,
@@ -71,4 +76,5 @@ DATABASE_URL=postgresql+psycopg://stocklens:<пароль>@localhost:5432/stockl
 ```bash
 uv run pytest tests -m integration                            # миграции
 uv run --project services/ingestor pytest services/ingestor/tests  # ingestor
+uv run --project services/api pytest services/api/tests            # api
 ```

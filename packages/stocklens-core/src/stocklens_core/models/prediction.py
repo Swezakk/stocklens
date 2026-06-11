@@ -15,8 +15,15 @@ class Prediction(Base):
 
     __tablename__ = "predictions"
     __table_args__ = (
+        # Явное короткое имя: имя по naming_convention превышает лимит
+        # идентификатора PostgreSQL (63 символа) и было бы молча обрезано.
         sa.UniqueConstraint(
-            "security_id", "predicted_for", "horizon_days", "kind", "model_version"
+            "security_id",
+            "predicted_for",
+            "horizon_days",
+            "kind",
+            "model_version",
+            name="uq_predictions_natural_key",
         ),
     )
 

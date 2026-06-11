@@ -228,6 +228,22 @@ def test_news_tickers_security_id_cascade() -> None:
     assert _fk_ondelete("news_tickers", "security_id") == "CASCADE"
 
 
+def test_constraint_names_fit_postgres_identifier_limit() -> None:
+    """Имена всех констрейнтов ≤ 63 символов — иначе PostgreSQL молча обрежет имя.
+
+    Обрезанное имя расходится с метаданными: ломается compare_metadata
+    в тестах миграций и будущие autogenerate-диффы.
+    """
+    pg_identifier_limit = 63
+    for table in Base.metadata.tables.values():
+        for constraint in table.constraints:
+            if isinstance(constraint.name, str):
+                assert len(constraint.name) <= pg_identifier_limit, (
+                    f"Table '{table.name}': constraint name '{constraint.name}' "
+                    f"is {len(constraint.name)} chars (PostgreSQL limit: {pg_identifier_limit})"
+                )
+
+
 def test_unique_constraints_have_uq_names() -> None:
     """Все UniqueConstraint должны иметь не-None имя, начинающееся с 'uq_'."""
     for table in Base.metadata.tables.values():

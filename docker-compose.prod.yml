@@ -1,0 +1,114 @@
+# Прод-стек для VPS под управлением Dokploy в режиме «Docker Compose» (НЕ «Stack»/Swarm).
+#
+# Отличия от docker-compose.yml (локальная разработка):
+#   - образы НЕ собираются на сервере, а тянутся из GHCR (сборка — в CI,
+#     .github/workflows/ci.yml, job `publish`); это снимает риск OOM на 4 ГБ;
+#   - том БД — внешний named-volume `stocklens_pgdata` (external): Dokploy не владеет
+#     его жизненным циклом, redeploy его не пересоздаёт (защита невосстановимых новостей);
+#   - на каждый сервис задан `mem_limit` — один сервис не может OOM-killнуть соседей
+#     (включая X-ray на этом же хосте);
+#   - БД и API наружу не публикуются: доступ к API настраивается через Traefik/домен
+#     в Dokploy (см. docs/deploy.md, фаза E).
+#
+# Env задаются в Dokploy (env-стор), не в репозитории. Перечень — docs/deploy.md.
+services:
+  db:
+    image: postgres:16-alpine
+    # Фиксированное имя — чтобы host-cron бэкапа (scripts/pg_backup.sh) находил контейнер.
+    container_name: stocklens-db
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    mem_limit: 768m
+    restart: unless-stopped
+
+  migrations:
+    image: ghcr.io/swezakk/stocklens-ingestor:${IMAGE_TAG:-latest}
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+    # Однократный запуск: завершается после применения миграций.
+    mem_limit: 512m
+    restart: "no"
+
+  redis:
+    image: redis:7-alpine
+    # Чистый кэш без персистентности: LRU-вытеснение ограничивает рост памяти.
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 320m
+    restart: unless-stopped
+
+  ingestor:
+    image: ghcr.io/swezakk/stocklens-ingestor:${IMAGE_TAG:-latest}
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      TICKERS_UNIVERSE: ${TICKERS_UNIVERSE:-IMOEX}
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    healthcheck:
+      # Heartbeat-файл обновляется сборщиком каждые ~60 с;
+      # файл старше 5 минут — признак зависшего процесса.
+      test:
+        [
+          "CMD-SHELL",
+          "test -f /tmp/ingestor-heartbeat && find /tmp/ingestor-heartbeat -mmin -5 | grep -q .",
+        ]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    mem_limit: 1g
+    restart: unless-stopped
+
+  api:
+    image: ghcr.io/swezakk/stocklens-api:${IMAGE_TAG:-latest}
+    environment:
+      DATABASE_URL_ASYNC: ${DATABASE_URL_ASYNC}
+      REDIS_URL: ${REDIS_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/ready')\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # Только внутренний порт: наружу API выводит Traefik (Dokploy), см. docs/deploy.md.
+    expose:
+      - "8000"
+    mem_limit: 1g
+    restart: unless-stopped
+
+volumes:
+  # Внешний том создаётся вручную (docker volume create stocklens_pgdata) до первого деплоя.
+  # external: true гарантирует, что Dokploy/`docker compose down -v` его не удалит.
+  pgdata:
+    external: true
+    name: stocklens_pgdata

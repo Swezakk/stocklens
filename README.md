@@ -53,7 +53,8 @@ cp .env.example .env             # задать DB_PASSWORD и прочие се
 docker compose up -d --build     # db → migrations → ingestor → redis → api
 ```
 
-API доступен на `http://localhost:8000` (Swagger — `/docs`): читающие
+API доступен на `http://localhost:8000` (Swagger — `/api/docs`, ReDoc — `/api/redoc`,
+OpenAPI — `/api/openapi.json`): читающие
 эндпоинты `/api/v1/data/*`, портфель `/api/v1/portfolio/*` (позиции, сводка
 с P&L против IMOEX, оптимизация Марковица по стратегии), список наблюдения
 `/api/v1/watchlist` (добавить любую акцию MOEX — данные подтянет ingestor),

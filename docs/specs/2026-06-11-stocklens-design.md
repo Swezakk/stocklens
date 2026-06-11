@@ -47,12 +47,17 @@ production-grade система: эталонная слоистая архит�
   intraday не нужен, а анонимный доступ MOEX отдаёт его с задержкой 15 минут.
 - **yfinance / зарубежные рынки.** Yahoo Finance заблокирован в РФ и нестабилен для
   cron-сбора — вычеркнут по результатам исследования источников.
+- **Облигации / ETF / фьючерсы (не-долевые классы активов).** Отложено осознанно:
+  вся аналитика проекта (волатильность, доходности, Марковиц, бенчмарк IMOEX)
+  equity-специфична — риск облигации это дюрация/ставки/кредит, а не кластеризация
+  волатильности. Мульти-актив требует отдельного аналитического трека и материализуется
+  поздней фазой при необходимости. Текущий объём — **долевые инструменты (акции) MOEX**.
 
 ## 3. Источники данных (проверены 2026-06-11)
 
 | # | Источник | Что берём | Доступ | Документация |
 |---|----------|-----------|--------|--------------|
-| 1 | **MOEX ISS API** | Дневные свечи (~45 тикеров IMOEX), дивиденды, сплиты, значения индекса IMOEX | Без ключа и регистрации, JSON, история с 2013 г., пагинация 500 строк | [moex.com/a2193](https://www.moex.com/a2193), [iss.moex.com/iss/reference](https://iss.moex.com/iss/reference/) |
+| 1 | **MOEX ISS API** | Дневные свечи по **списку наблюдения** (по умолчанию ~45 бумаг IMOEX; пользователь добавляет **любую** акцию MOEX по требованию), дивиденды, сплиты, значения индекса IMOEX | Без ключа и регистрации, JSON, история с 2013 г., пагинация 500 строк | [moex.com/a2193](https://www.moex.com/a2193), [iss.moex.com/iss/reference](https://iss.moex.com/iss/reference/) |
 | 2 | **RSS финансовых СМИ** | Новости: РБК (`rssexport.rbc.ru/rbcnews/news/30/full.rss`), Коммерсантъ (`kommersant.ru/rss/news.xml`), Интерфакс (`interfax.ru/rss`) | Без ключа; **архива нет** — копим вперёд с первого дня | публичные фиды |
 | 3 | **ЦБ РФ** | Курсы USD/EUR/CNY, ключевая ставка | Открытое XML/JSON API без ключа | [cbr.ru/development](https://www.cbr.ru/development/) |
 
@@ -144,7 +149,7 @@ stocklens/
 
 | Таблица | Ключевые поля | Примечания |
 |---------|---------------|------------|
-| `securities` | `id`, `ticker` (uniq), `name`, `board`, `aliases` (jsonb), `is_active` | ~45 бумаг IMOEX; `aliases` — словарь имён для матчинга в новостях («Сбер», «Сбербанк» → SBER) |
+| `securities` | `id`, `ticker` (uniq), `name`, `board`, `aliases` (jsonb), `is_active` | состав сбора = список наблюдения (по умолчанию ~45 бумаг IMOEX) + добавленные пользователем; `aliases` — словарь имён для матчинга в новостях («Сбер», «Сбербанк» → SBER) |
 | `candles` | `security_id`, `trade_date`, `open/high/low/close`, `volume`, `value`, `is_weekend_session` | uniq `(security_id, trade_date)`; upsert; флаг сессий выходного дня (MOEX торгует по выходным с 03.2025) |
 | `dividends` | `security_id`, `ex_date`, `value`, `currency` | для календаря отсечек и коррекции гэпов в волатильности |
 | `splits` | `security_id`, `split_date`, `before`, `after` | дробления/консолидации (uniq `(security_id, split_date)`); без коррекции на сплит история цен ломает расчёт доходностей |
@@ -158,6 +163,7 @@ stocklens/
 | `predictions` | `security_id`, `predicted_for`, `horizon_days`, `kind`, `value`, `model_version`, `created_at` | kind: `StrEnum` volatility/trend; хранение прогнозов для страницы «прогноз vs факт» |
 | `collector_runs` | `source`, `started_at`, `finished_at`, `status`, `records_added`, `error_message` | status: `StrEnum` success/partial/failed; основа страницы мониторинга |
 | `bot_subscriptions` | `chat_id`, `kind`, `params` (jsonb) | подписки на алерты; kind: `StrEnum` sentiment_spike/volatility_regime/dividend_upcoming/price_level (типы алертов из §11) |
+| `watchlist` | `ticker` (uniq), `added_at` | список наблюдения пользователя: тикеры MOEX-акций сверх состава IMOEX. Пишет API (пользовательское намерение); ingestor читает и материализует бумагу + backfill (инвариант одного write-пути сохранён) |
 
 Все статусы и типы — через `StrEnum` (хардкод строк в логике запрещён).
 
@@ -222,6 +228,12 @@ stocklens/
 Марковиц (efficient frontier) поверх исторических доходностей; сравнение
 с равными весами и IMOEX по Sharpe и максимальной просадке. Не ML — но ключевая
 страница пользы и демо.
+
+Оптимизация — **по выбранной пользователем стратегии** (цели): максимум Sharpe,
+минимум волатильности, заданная целевая доходность (`efficient_return`), заданный
+уровень риска (`efficient_risk`), баланс под терпимость к риску
+(`max_quadratic_utility` с risk_aversion). Реализуется средствами PyPortfolioOpt;
+эндпоинт `POST /portfolio/optimize` принимает параметр стратегии и её параметры.
 
 ### 8.5. Методология
 
@@ -372,7 +384,9 @@ Streamlit обращается только к API; на каждой стран
 
 Все секреты и окружение — `.env` (в репозитории только `.env.example`):
 `DB_USER`, `DB_PASSWORD`, `DATABASE_URL`, `REDIS_URL`, `TELEGRAM_BOT_TOKEN`,
-`API_URL`, `MLFLOW_TRACKING_URI`, `TICKERS_UNIVERSE` (по умолчанию состав IMOEX).
+`API_URL`, `MLFLOW_TRACKING_URI`, `TICKERS_UNIVERSE` (сид списка наблюдения по
+умолчанию — состав IMOEX; динамические добавления пользователя живут в таблице
+`watchlist`, а не в конфиге).
 Конфиги сервисов — `pydantic-settings`, никаких magic-значений в коде.
 
 ## 14. Деплой

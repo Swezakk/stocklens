@@ -38,8 +38,9 @@
 3. `services/ingestor` — сбор MOEX — **готово**
 4. RSS + sentiment, ЦБ РФ — **готово**
 5. `services/api` — FastAPI (слоистый async): `data/*` + кэш, портфель
-   (CRUD, P&L vs IMOEX, оптимизация Марковица) и подписки бота — **готово;**
-   прогнозы (`predict/*`) ждут ML-моделей
+   (CRUD, P&L vs IMOEX, оптимизация Марковица по выбранной стратегии), подписки
+   бота, список наблюдения (любая акция MOEX) — **готово;** прогнозы
+   (`predict/*`) ждут ML-моделей
 6. `services/dashboard`, `services/bot`, ML-пайплайн, деплой (Dokploy)
 
 ## Запуск
@@ -54,8 +55,10 @@ docker compose up -d --build     # db → migrations → ingestor → redis → 
 
 API доступен на `http://localhost:8000` (Swagger — `/docs`): читающие
 эндпоинты `/api/v1/data/*`, портфель `/api/v1/portfolio/*` (позиции, сводка
-с P&L против IMOEX, оптимизация Марковица), подписки бота `/api/v1/bot/subscriptions`,
-мониторинг `/api/v1/monitoring/runs`, здоровье `/api/v1/health/{live,ready}`.
+с P&L против IMOEX, оптимизация Марковица по стратегии), список наблюдения
+`/api/v1/watchlist` (добавить любую акцию MOEX — данные подтянет ingestor),
+подписки бота `/api/v1/bot/subscriptions`, мониторинг `/api/v1/monitoring/runs`,
+здоровье `/api/v1/health/{live,ready}`.
 
 При первом старте ingestor выполняет backfill всей истории котировок
 (~46 бумаг IMOEX, ≤1 запрос/сек к MOEX ISS — порядка 25 минут) и курсов ЦБ,

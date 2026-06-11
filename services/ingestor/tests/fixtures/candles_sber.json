@@ -1,0 +1,14 @@
+{
+  "history": {
+    "columns": ["BOARDID", "TRADEDATE", "SHORTNAME", "SECID", "NUMTRADES", "VALUE", "OPEN", "LOW", "HIGH", "LEGALCLOSEPRICE", "WAPRICE", "CLOSE", "VOLUME", "MARKETPRICE2", "MARKETPRICE3", "ADMITTEDQUOTE", "MP2VALTRD", "MARKETPRICE3TRADESVALUE", "ADMITTEDVALUE", "WAVAL", "TRADINGSESSION", "CURRENCYID", "TRENDCLSPR", "TRADE_SESSION_DATE"],
+    "data": [
+      ["TQBR", "2026-06-01", "Сбербанк", "SBER", 139105, 6087772507.27, 320.67, 320.57, 323.47, 322.46, 322.3, 322.99, 18888303, 322.37, 322.37, null, 4154291423.41, 4154291423.41, null, 0, 3, "SUR", 0.75, "2026-06-01"],
+      ["TQBR", "2026-06-02", "Сбербанк", "SBER", 120000, 5500000000.00, 321.00, 319.50, 324.00, 323.00, 322.00, 323.00, 17000000, 322.00, 322.00, null, 3900000000.00, 3900000000.00, null, 0, 3, "SUR", 0.31, "2026-06-02"],
+      ["TQBR", "2026-06-03", "Сбербанк", "SBER", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 3, "SUR", null, "2026-06-03"]
+    ]
+  },
+  "history.cursor": {
+    "columns": ["INDEX", "TOTAL", "PAGESIZE"],
+    "data": [[0, 2, 100]]
+  }
+}

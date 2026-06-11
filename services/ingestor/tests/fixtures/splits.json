@@ -1,0 +1,10 @@
+{
+  "splits": {
+    "columns": ["tradedate", "secid", "before", "after"],
+    "data": [
+      ["2018-12-12", "FXRU", 10, 1],
+      ["2021-04-12", "VTBB", 1, 10],
+      ["2024-06-10", "TRNFP", 1, 100]
+    ]
+  }
+}

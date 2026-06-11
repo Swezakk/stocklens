@@ -48,6 +48,7 @@ EXPECTED_TABLES = {
     "securities",
     "candles",
     "dividends",
+    "splits",
     "index_values",
     "currency_rates",
     "news_articles",
@@ -60,7 +61,7 @@ EXPECTED_TABLES = {
 }
 
 
-def test_all_twelve_tables_registered() -> None:
+def test_all_expected_tables_registered() -> None:
     assert set(Base.metadata.tables.keys()) == EXPECTED_TABLES
 
 
@@ -70,6 +71,10 @@ def test_candles_unique_security_trade_date() -> None:
 
 def test_dividends_unique_security_ex_date() -> None:
     assert frozenset({"security_id", "ex_date"}) in _unique_col_sets("dividends")
+
+
+def test_splits_unique_security_split_date() -> None:
+    assert frozenset({"security_id", "split_date"}) in _unique_col_sets("splits")
 
 
 def test_index_values_unique_code_trade_date() -> None:
@@ -183,6 +188,10 @@ def test_candles_trade_date_is_date() -> None:
 
 def test_dividends_ex_date_is_date() -> None:
     _assert_date_col("dividends", "ex_date")
+
+
+def test_splits_split_date_is_date() -> None:
+    _assert_date_col("splits", "split_date")
 
 
 def test_index_values_trade_date_is_date() -> None:

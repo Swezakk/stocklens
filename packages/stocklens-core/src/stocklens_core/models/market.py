@@ -65,6 +65,25 @@ class Dividend(Base):
     currency: Mapped[Currency] = mapped_column(str_enum_type(Currency), nullable=False)
 
 
+class Split(Base):
+    """Дробление или консолидация акций: before акций становятся after.
+
+    Без коррекции на сплит цена в истории выглядит как обвал/взлёт и ломает
+    расчёт доходностей и волатильности (прецедент — TRNFP 1:100 в 2024).
+    """
+
+    __tablename__ = "splits"
+    __table_args__ = (sa.UniqueConstraint("security_id", "split_date"),)
+
+    id: Mapped[int] = mapped_column(sa.BigInteger, sa.Identity(), primary_key=True)
+    security_id: Mapped[int] = mapped_column(
+        sa.BigInteger, sa.ForeignKey("securities.id"), nullable=False
+    )
+    split_date: Mapped[date] = mapped_column(sa.Date, nullable=False)
+    before: Mapped[int] = mapped_column(sa.BigInteger, nullable=False)
+    after: Mapped[int] = mapped_column(sa.BigInteger, nullable=False)
+
+
 class IndexValue(Base):
     """Значение биржевого индекса за торговый день."""
 

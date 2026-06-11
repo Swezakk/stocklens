@@ -21,6 +21,7 @@ from stocklens_core.models import (
     PortfolioPosition,
     Prediction,
     Security,
+    Split,
 )
 from stocklens_core.settings import CoreSettings
 
@@ -44,4 +45,5 @@ __all__ = [
     "PredictionKind",
     "Security",
     "SentimentLabel",
+    "Split",
 ]

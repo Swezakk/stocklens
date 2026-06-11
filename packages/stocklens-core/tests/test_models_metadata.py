@@ -51,6 +51,7 @@ EXPECTED_TABLES = {
     "splits",
     "index_values",
     "currency_rates",
+    "key_rates",
     "news_articles",
     "news_sentiment",
     "news_tickers",
@@ -200,6 +201,11 @@ def test_index_values_trade_date_is_date() -> None:
 
 def test_currency_rates_rate_date_is_date() -> None:
     _assert_date_col("currency_rates", "rate_date")
+
+
+def test_key_rates_rate_date_is_date_and_unique() -> None:
+    _assert_date_col("key_rates", "rate_date")
+    assert _col("key_rates", "rate_date").unique is True
 
 
 def test_predictions_predicted_for_is_date() -> None:

@@ -6,6 +6,7 @@ from stocklens_core.models.market import (
     CurrencyRate,
     Dividend,
     IndexValue,
+    KeyRate,
     Security,
     Split,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "CurrencyRate",
     "Dividend",
     "IndexValue",
+    "KeyRate",
     "NewsArticle",
     "NewsSentiment",
     "NewsTicker",

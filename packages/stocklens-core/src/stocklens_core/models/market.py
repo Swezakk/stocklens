@@ -106,3 +106,13 @@ class CurrencyRate(Base):
     currency: Mapped[Currency] = mapped_column(str_enum_type(Currency), nullable=False)
     rate_date: Mapped[date] = mapped_column(sa.Date, nullable=False)
     rate: Mapped[Decimal] = mapped_column(sa.Numeric(18, 6), nullable=False)
+
+
+class KeyRate(Base):
+    """Ключевая ставка ЦБ РФ на дату (одно значение на дату действия)."""
+
+    __tablename__ = "key_rates"
+
+    id: Mapped[int] = mapped_column(sa.BigInteger, sa.Identity(), primary_key=True)
+    rate_date: Mapped[date] = mapped_column(sa.Date, nullable=False, unique=True)
+    rate: Mapped[Decimal] = mapped_column(sa.Numeric(5, 2), nullable=False)

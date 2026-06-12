@@ -108,9 +108,7 @@ class TestListCurrencyRates:
         self, client: AsyncClient, db_session: AsyncSession
     ) -> None:
         """Фильтр currency=USD возвращает только USD."""
-        await seed_currency_rate(
-            db_session, currency=Currency.USD, rate_date=date(2024, 5, 1)
-        )
+        await seed_currency_rate(db_session, currency=Currency.USD, rate_date=date(2024, 5, 1))
         await seed_currency_rate(
             db_session, currency=Currency.EUR, rate_date=date(2024, 5, 1), rate=Decimal("97.00")
         )
@@ -240,9 +238,7 @@ class TestPortfolioBacktest:
         body = resp.json()
         assert "портфель" in body["detail"].lower() or "позиц" in body["detail"].lower()
 
-    async def test_backtest_happy_path(
-        self, client: AsyncClient, db_session: AsyncSession
-    ) -> None:
+    async def test_backtest_happy_path(self, client: AsyncClient, db_session: AsyncSession) -> None:
         """200 + корректная структура BacktestResultOut при наличии позиций и котировок."""
         sec = await seed_security(db_session, ticker="BKTS_SBER")
         await seed_portfolio_position(db_session, security_id=sec.id)

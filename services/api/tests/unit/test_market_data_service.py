@@ -121,9 +121,7 @@ async def test_list_index_empty_returns_empty_page() -> None:
 async def test_list_currency_rates_returns_page() -> None:
     """list_currency_rates возвращает Page[CurrencyRateOut]."""
     items = [
-        CurrencyRateOut(
-            currency=Currency.USD, rate_date=date(2024, 1, 15), rate=Decimal("89.50")
-        ),
+        CurrencyRateOut(currency=Currency.USD, rate_date=date(2024, 1, 15), rate=Decimal("89.50")),
     ]
     repo = FakeMarketDataRepo(currency_items=items, currency_total=1)
     service = MarketDataService(repo)

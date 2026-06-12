@@ -75,10 +75,9 @@ class SqlMarketDataRepository:
         total_result = await self._session.execute(count_query)
         total = total_result.scalar_one()
 
-        data_query = (
-            select(CurrencyRate.currency, CurrencyRate.rate_date, CurrencyRate.rate)
-            .order_by(CurrencyRate.rate_date.desc())
-        )
+        data_query = select(
+            CurrencyRate.currency, CurrencyRate.rate_date, CurrencyRate.rate
+        ).order_by(CurrencyRate.rate_date.desc())
         if filters:
             data_query = data_query.where(*filters)
         rows = await self._session.execute(data_query.limit(limit).offset(offset))

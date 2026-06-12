@@ -45,9 +45,7 @@ class BacktestService:
         """
         positions = await self._portfolio_repo.list_positions()
         if not positions:
-            raise InsufficientDataError(
-                "Бэктест невозможен: портфель не содержит позиций"
-            )
+            raise InsufficientDataError("Бэктест невозможен: портфель не содержит позиций")
 
         date_to = datetime.now(tz=UTC).date()
         date_from = date_to - timedelta(days=months_back * _MONTHS_TO_DAYS_APPROX)

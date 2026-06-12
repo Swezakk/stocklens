@@ -139,10 +139,12 @@ async def test_backtest_ticker_no_candles_in_window_is_skipped() -> None:
     prices_sec1 = _prices(Decimal("100.00"), 10)
     imoex = [(d, Decimal("3000")) for d, _ in prices_sec1]
 
-    portfolio_repo = FakePortfolioRepo([
-        _make_position(1),
-        _make_position(2),  # нет свечей для sec_id=2
-    ])
+    portfolio_repo = FakePortfolioRepo(
+        [
+            _make_position(1),
+            _make_position(2),  # нет свечей для sec_id=2
+        ]
+    )
     market_repo = FakeMarketHistoryRepo(
         close_series={1: prices_sec1, 2: []},
         imoex=imoex,

@@ -53,6 +53,14 @@ services:
     environment:
       DATABASE_URL_ASYNC: ${DATABASE_URL_ASYNC}
       REDIS_URL: ${REDIS_URL}
+      AUTH_MODE: ${AUTH_MODE:-local}
+      AUTH_ISSUER: ${AUTH_ISSUER:-https://stocklens.local}
+      AUTH_AUDIENCE: ${AUTH_AUDIENCE:-stocklens-api}
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_JWKS_URL: ${AUTH_JWKS_URL:-}
+      AUTH_OWNER_USERNAME: ${AUTH_OWNER_USERNAME:-admin}
+      AUTH_OWNER_PASSWORD: ${AUTH_OWNER_PASSWORD}
+      AUTH_TOKEN_TTL_SECONDS: ${AUTH_TOKEN_TTL_SECONDS:-3600}
     depends_on:
       db:
         condition: service_healthy

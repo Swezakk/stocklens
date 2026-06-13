@@ -112,6 +112,29 @@ class InvalidStrategyParamsError(ApiError):
         super().__init__(detail)
 
 
+class UnauthorizedError(ApiError):
+    """Запрос не прошёл аутентификацию: токен отсутствует, недействителен или истёк."""
+
+    status = 401
+    title = "Требуется авторизация"
+    problem_type = "https://stocklens.local/problems/unauthorized"
+
+    def __init__(self, detail: str = "Требуется авторизация") -> None:
+        super().__init__(detail)
+
+
+class RateLimitError(ApiError):
+    """Превышен лимит запросов для данной операции."""
+
+    status = 429
+    title = "Слишком много запросов"
+    problem_type = "https://stocklens.local/problems/rate-limit-exceeded"
+
+    def __init__(self, detail: str, retry_after_seconds: int) -> None:
+        super().__init__(detail)
+        self.retry_after_seconds = retry_after_seconds
+
+
 class SchemaNotReadyError(Exception):
     """БД не готова к работе: схема не применена после N попыток."""
 

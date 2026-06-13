@@ -36,6 +36,12 @@ class _BrokenRedis:
     async def set(self, key: str, value: str, ex: int | None = None) -> None:
         raise ConnectionError("Redis down")
 
+    async def incr(self, key: str) -> int:
+        raise ConnectionError("Redis down")
+
+    async def expire(self, key: str, seconds: int) -> None:
+        raise ConnectionError("Redis down")
+
     async def ping(self) -> bool:
         raise ConnectionError("Redis down")
 

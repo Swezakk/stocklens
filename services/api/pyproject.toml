@@ -19,6 +19,9 @@ dependencies = [
     # pypfopt → skbase импортирует packaging в runtime, но не объявляет его как
     # hard-зависимость; в dev-окружении он присутствует транзитивно, в prod (--no-dev) — нет.
     "packaging>=24",
+    "pyjwt[crypto]>=2.10",
+    # OAuth2PasswordRequestForm (эндпоинт /auth/token) парсит form-data — нужен python-multipart.
+    "python-multipart>=0.0.18",
 ]
 
 [dependency-groups]

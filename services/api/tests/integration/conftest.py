@@ -16,6 +16,9 @@ import pytest_asyncio
 import redis.asyncio as aioredis
 from alembic import command
 from alembic.config import Config
+from api.core.auth.deps import require_auth
+from api.core.auth.principal import Principal
+from api.core.auth.settings import AuthSettings
 from api.core.cache import RedisClientProtocol
 from api.core.db import get_redis, get_session
 from api.core.settings import ApiSettings
@@ -33,6 +36,17 @@ from testcontainers.redis import RedisContainer
 pytestmark = pytest.mark.integration
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
+
+_TEST_SIGNING_KEY = "test-secret-for-integration-tests-only"
+_TEST_OWNER_USERNAME = "testowner"
+_TEST_OWNER_CREDENTIAL = "test-owner-credential-integration"
+_TEST_PRINCIPAL = Principal(sub=_TEST_OWNER_USERNAME, scopes=[], claims={})
+
+# create_app() жадно создаёт AuthSettings из env (owner_password обязателен) —
+# задаём детерминированные AUTH_* до того, как фикстуры вызовут create_app().
+os.environ["AUTH_SECRET"] = _TEST_SIGNING_KEY
+os.environ["AUTH_OWNER_USERNAME"] = _TEST_OWNER_USERNAME
+os.environ["AUTH_OWNER_PASSWORD"] = _TEST_OWNER_CREDENTIAL
 
 
 def _alembic_config(sync_url: str) -> Config:
@@ -94,14 +108,63 @@ def test_settings(pg_container: PostgresContainer, redis_container: RedisContain
     return ApiSettings.model_validate({})
 
 
+@pytest.fixture
+def test_auth_settings() -> AuthSettings:
+    """AuthSettings для integration-тестов с известным секретом."""
+    return AuthSettings.model_validate(
+        {
+            "secret": _TEST_SIGNING_KEY,
+            "owner_username": _TEST_OWNER_USERNAME,
+            "owner_password": _TEST_OWNER_CREDENTIAL,
+            "issuer": "https://stocklens.test",
+            "audience": "stocklens-api-test",
+        }
+    )
+
+
 @pytest_asyncio.fixture
 async def client(
     db_session: AsyncSession,
     real_redis_client: RedisClientProtocol,
     test_settings: ApiSettings,
+    test_auth_settings: AuthSettings,
 ) -> AsyncGenerator[AsyncClient, None]:
+    """HTTP-клиент с переопределённым require_auth — все существующие тесты не требуют токена."""
     app = create_app()
     app.state.settings = test_settings
+    app.state.auth_settings = test_auth_settings
+
+    async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
+        yield db_session
+
+    def override_get_redis() -> RedisClientProtocol:
+        return real_redis_client
+
+    async def override_require_auth() -> Principal:
+        return _TEST_PRINCIPAL
+
+    app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_redis] = override_get_redis
+    app.dependency_overrides[require_auth] = override_require_auth
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as ac:
+        yield ac
+
+
+@pytest_asyncio.fixture
+async def noauth_client(
+    db_session: AsyncSession,
+    real_redis_client: RedisClientProtocol,
+    test_settings: ApiSettings,
+    test_auth_settings: AuthSettings,
+) -> AsyncGenerator[AsyncClient, None]:
+    """HTTP-клиент БЕЗ override require_auth — для тестирования реальной аутентификации."""
+    app = create_app()
+    app.state.settings = test_settings
+    app.state.auth_settings = test_auth_settings
 
     async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
         yield db_session

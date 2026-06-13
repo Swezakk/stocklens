@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from api.core.exceptions import ApiError
+from api.core.exceptions import ApiError, RateLimitError, UnauthorizedError
 
 _PROBLEM_MEDIA_TYPE = "application/problem+json"
 
@@ -39,6 +39,30 @@ def _problem_response(
 
 def install_exception_handlers(app: FastAPI) -> None:
     """Зарегистрировать обработчики исключений на экземпляре FastAPI."""
+
+    @app.exception_handler(RateLimitError)
+    async def handle_rate_limit_error(request: Request, exc: RateLimitError) -> JSONResponse:
+        response = _problem_response(
+            request,
+            status=exc.status,
+            problem_type=exc.problem_type,
+            title=exc.title,
+            detail=exc.detail,
+        )
+        response.headers["Retry-After"] = str(exc.retry_after_seconds)
+        return response
+
+    @app.exception_handler(UnauthorizedError)
+    async def handle_unauthorized_error(request: Request, exc: UnauthorizedError) -> JSONResponse:
+        response = _problem_response(
+            request,
+            status=exc.status,
+            problem_type=exc.problem_type,
+            title=exc.title,
+            detail=exc.detail,
+        )
+        response.headers["WWW-Authenticate"] = "Bearer"
+        return response
 
     @app.exception_handler(ApiError)
     async def handle_api_error(request: Request, exc: ApiError) -> JSONResponse:

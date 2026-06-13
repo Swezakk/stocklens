@@ -15,6 +15,14 @@ class _WorkingRedis:
     async def set(self, key: str, value: str, ex: int | None = None) -> None:
         self._store[key] = value
 
+    async def incr(self, key: str) -> int:
+        value = int(self._store.get(key, "0")) + 1
+        self._store[key] = str(value)
+        return value
+
+    async def expire(self, key: str, seconds: int) -> None:
+        pass
+
     async def ping(self) -> bool:
         return True
 
@@ -29,6 +37,12 @@ class _BrokenRedis:
         raise ConnectionError("Redis недоступен")
 
     async def set(self, key: str, value: str, ex: int | None = None) -> None:
+        raise ConnectionError("Redis недоступен")
+
+    async def incr(self, key: str) -> int:
+        raise ConnectionError("Redis недоступен")
+
+    async def expire(self, key: str, seconds: int) -> None:
         raise ConnectionError("Redis недоступен")
 
     async def ping(self) -> bool:

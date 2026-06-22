@@ -26,12 +26,16 @@ from dashboard.pages.portfolio import (
     _format_money,
     _format_pnl,
     _is_empty_state_error,
+    _pnl_color,
     _pnl_direction,
     _position_row,
     _positions_dataframe,
+    _style_positions,
     _ticker_options,
     _vs_imoex_delta,
 )
+
+from dashboard import theme
 
 _MINUS_SIGN = "−"
 
@@ -110,6 +114,37 @@ def test_position_row_missing_valuation_uses_placeholder() -> None:
     assert row[_COL_CURRENT_PRICE] == "—"
     assert row[_COL_CURRENT_VALUE] == "—"
     assert row[_COL_PNL] == "—"
+
+
+def test_pnl_color_positive_is_up_color() -> None:
+    assert _pnl_color("+307.50") == f"color: {theme.UP}"
+
+
+def test_pnl_color_negative_typographic_minus_is_down_color() -> None:
+    """Падение читается с типографского минуса U+2212, а не ASCII «-» (формат _format_pnl)."""
+    assert _pnl_color(f"{_MINUS_SIGN}150.25") == f"color: {theme.DOWN}"
+
+
+def test_pnl_color_ascii_minus_is_not_colored() -> None:
+    """ASCII «-» не цвет падения: _format_pnl никогда его не выдаёт, страхуемся от ложного down."""
+    assert _pnl_color("-150.25") == ""
+
+
+def test_pnl_color_zero_and_placeholder_have_no_rule() -> None:
+    assert _pnl_color("0.00") == ""
+    assert _pnl_color("—") == ""
+
+
+def test_style_positions_colors_only_pnl_column() -> None:
+    """Styler красит P&L по знаку и не трогает прочие колонки (рендерится st.dataframe)."""
+    frame = _positions_dataframe(
+        [_position("SBER", unrealized_pnl="307.50"), _position("GAZP", unrealized_pnl="-50.00")]
+    )
+
+    rendered = _style_positions(frame).to_html()
+
+    assert f"color: {theme.UP}" in rendered
+    assert f"color: {theme.DOWN}" in rendered
 
 
 def test_positions_dataframe_keeps_column_order() -> None:

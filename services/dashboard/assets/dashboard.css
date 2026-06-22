@@ -17,6 +17,26 @@
     padding-top: 1.5rem;
 }
 
+/* --- Вертикальный ритм: умеренно плотнее (DESIGN §4 — data-dense, читаемо) */
+/* Дефолтный gap вертикального блока 14px и паддинги заголовков дают рыхлый ритм
+   с большими пустотами между секциями. Срезаем умеренно: gap каскадит и во вложенные
+   блоки (колонки), поэтому значение сдержанное, чтобы KPI-полоса и строки муверов не
+   слиплись. Заголовки h1/h2/h3 — собственные паддинги Streamlit, тоже подрезаются. */
+[data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] {
+    gap: 0.6rem;
+}
+
+[data-testid="stHeading"] h1 {
+    padding-top: 0.75rem;
+    padding-bottom: 0.5rem;
+}
+
+[data-testid="stHeading"] h2,
+[data-testid="stHeading"] h3 {
+    padding-top: 0.5rem;
+    padding-bottom: 0.4rem;
+}
+
 /* --- StatCell: компактная KPI-ячейка (DESIGN §5), не hero-metric -------- */
 .statcell {
     display: flex;
@@ -66,6 +86,29 @@
 
 .delta-badge--flat {
     color: #8B93A0;
+}
+
+/* --- Mover-row: компактная строка лидера роста/падения (DESIGN §10.1) --- */
+/* Подпись слева, бейдж сразу за ней — одна flex-строка вместо вложенных колонок,
+   где бейдж улетал к правому краю с большим разрывом до подписи. */
+.mover-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.15rem 0;
+}
+
+.mover-row__caption {
+    font-size: 14px;
+    color: var(--st-text-color, #E6E8EB);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mover-row__badge {
+    flex: 0 0 auto;
 }
 
 /* --- SentimentChip: пилюля метки тональности (DESIGN §5) ---------------- */

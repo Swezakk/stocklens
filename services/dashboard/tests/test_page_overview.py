@@ -28,6 +28,7 @@ from dashboard.pages.overview import (
     _mover_badge,
     _mover_caption,
     _mover_direction,
+    _mover_row_markdown,
     _period_bounds,
 )
 from stocklens_core.enums import CollectorRunStatus, Currency
@@ -184,6 +185,28 @@ def test_mover_badge_flat_uses_arrow_and_flat_class() -> None:
 def test_mover_caption_joins_ticker_name_and_close() -> None:
     mover = _mover("SBER", "Сбербанк", "310.55", "305.00", 1.82)
     assert _mover_caption(mover) == "SBER · Сбербанк · 310.55"
+
+
+def test_mover_row_markdown_pairs_caption_and_badge_in_one_flex_row() -> None:
+    mover = _mover("SBER", "Сбербанк", "310.55", "305.00", 1.82)
+
+    markdown = _mover_row_markdown(mover)
+
+    assert 'class="mover-row"' in markdown
+    assert "SBER · Сбербанк · 310.55" in markdown
+    assert "▲ +1.82%" in markdown
+    assert "delta-badge--up" in markdown
+
+
+def test_mover_row_markdown_escapes_caption_html() -> None:
+    """Имя бумаги MOEX с «&»/«<» экранируется, как в kpi.py (защита от поломки разметки)."""
+    mover = _mover("X", "A & B <co>", "10.00", "9.00", 1.0)
+
+    markdown = _mover_row_markdown(mover)
+
+    assert "&amp;" in markdown
+    assert "&lt;co&gt;" in markdown
+    assert "<co>" not in markdown
 
 
 def test_latest_update_time_picks_max_finished_success_in_moscow_tz() -> None:

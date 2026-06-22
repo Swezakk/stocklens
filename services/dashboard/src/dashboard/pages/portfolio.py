@@ -25,7 +25,9 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
+from pandas.io.formats.style import Styler
 
+from dashboard import theme
 from dashboard.api_client.client import ApiClient
 from dashboard.api_client.dto import (
     BacktestResultOut,
@@ -146,6 +148,32 @@ def _format_pnl(value: Decimal | None) -> str:
     if direction is DeltaDirection.DOWN:
         return f"{_MINUS_SIGN}{abs(quantized):.2f}"
     return f"{quantized:.2f}"
+
+
+def _pnl_color(formatted: str) -> str:
+    """CSS-цвет ячейки P&L по знаку уже отформатированной строки (DESIGN §2.2).
+
+    Таблица позиций хранит готовые строки, не числа: рост начинается с «+», падение —
+    с типографского минуса U+2212 (НЕ ASCII «-»), ноль — «0.00», отсутствие оценки — «—».
+    Знак читается с начала строки; для нуля и заглушки цвет не задаётся (пустая строка =
+    «без правила», ячейка остаётся в цвете текста темы). Возвращает CSS-декларацию для
+    Styler.map, а не голый hex.
+    """
+    if formatted.startswith("+"):
+        return f"color: {theme.UP}"
+    if formatted.startswith(_MINUS_SIGN):
+        return f"color: {theme.DOWN}"
+    return ""
+
+
+def _style_positions(frame: pd.DataFrame) -> Styler:
+    """Окрасить колонку P&L таблицы позиций по знаку (рост зелёный / падение красный).
+
+    Styler.map (не устаревший applymap) применяется только к колонке P&L; денежные/
+    числовые колонки и заглушки «—» цвета не меняют. st.dataframe принимает Styler и
+    рендерит CSS color из правила (DESIGN §2.2: цвет — дубль к знаку, не единственный канал).
+    """
+    return frame.style.map(_pnl_color, subset=[_COL_PNL])
 
 
 def _vs_imoex_delta(
@@ -274,10 +302,12 @@ def _render_positions_table(positions: Sequence[PositionOut]) -> None:
     """Отрисовать таблицу позиций (st.dataframe, RU-заголовки, табличные цифры).
 
     Денежные колонки — TextColumn: значения уже отформатированы строками (типографский
-    минус и заглушка «—»), а NumberColumn-формат не поддерживает оба этих случая.
+    минус и заглушка «—»), а NumberColumn-формат не поддерживает оба этих случая. P&L
+    окрашивается по знаку через Styler (рост зелёный / падение красный), TextColumn-формат
+    при этом сохраняется.
     """
     st.dataframe(
-        _positions_dataframe(positions),
+        _style_positions(_positions_dataframe(positions)),
         hide_index=True,
         use_container_width=True,
         column_config={

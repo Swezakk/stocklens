@@ -56,6 +56,10 @@ _FEED_PAGE_SIZE = 50
 #: Сколько частотных слов показывать в баре (DESIGN §10.3).
 _WORD_FREQUENCY_TOP_N = 15
 
+#: Минимум точек данных, ниже которого график агрегата вырождается (одна точка в гигантской
+#: рамке с абсурдной осью). Меньше порога → текстовая заметка вместо графика (DESIGN §4, §10).
+_MIN_AGGREGATE_POINTS = 3
+
 #: Ключи виджетов фильтров (разводят виджеты на странице без коллизий).
 _TICKER_KEY = "news_ticker"
 _SENTIMENT_KEY = "news_sentiment"
@@ -70,8 +74,8 @@ _SECTION_WORDS = "Частотные слова"
 
 #: Подписи пустых результатов (RU-копи; успех без данных — не сбой).
 _EMPTY_FEED = "Новостей по выбранным фильтрам нет."
-_EMPTY_TREND = "Недостаточно скоренных новостей за период для динамики тона."
-_EMPTY_WORDS = "Недостаточно заголовков за период для частотных слов."
+_EMPTY_TREND = "Недостаточно данных для динамики тона за период."
+_EMPTY_WORDS = "Недостаточно данных для частотных слов за период."
 
 #: Подписи кнопок пагинации ленты.
 _PREV_LABEL = "Назад"
@@ -278,7 +282,7 @@ def _render_trend(articles: list[NewsOut], caption: str) -> None:
     st.subheader(_SECTION_TREND)
     st.caption(caption)
     series = group_sentiment_by_date(articles)
-    if not series:
+    if len(series) < _MIN_AGGREGATE_POINTS:
         render_empty(_EMPTY_TREND)
         return
     render_chart(build_sentiment_trend_chart(series))
@@ -292,7 +296,7 @@ def _render_word_frequencies(articles: list[NewsOut], caption: str) -> None:
         [article.title for article in articles],
         top_n=_WORD_FREQUENCY_TOP_N,
     )
-    if not frequencies:
+    if len(frequencies) < _MIN_AGGREGATE_POINTS:
         render_empty(_EMPTY_WORDS)
         return
     render_chart(build_word_frequency_chart(frequencies))

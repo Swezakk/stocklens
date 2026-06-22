@@ -49,6 +49,7 @@ def select_sentiments(*, key: str = "sentiment") -> list[SentimentLabel]:
         "Тональность",
         options=list(SentimentLabel),
         format_func=lambda label: SENTIMENT_LABELS_RU[label],
+        placeholder="Все",
         key=key,
     )
     return list(selected)

@@ -14,6 +14,7 @@ render() — тонкая оркестрация: всё нетривиальн�
 экранов без объяснения нет (DESIGN §5, §10).
 """
 
+import html
 from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -273,13 +274,21 @@ def _render_kpi_strip(client: ApiClient) -> None:
         _render_key_rate_kpi(client)
 
 
-def _render_mover_row(mover: MoverOut) -> None:
-    """Отрисовать одну строку мувера: подпись (тикер/имя/close) + DeltaBadge (DESIGN §10.1)."""
-    caption_col, badge_col = st.columns([3, 1])
-    with caption_col:
-        st.markdown(_mover_caption(mover))
-    with badge_col:
-        st.markdown(_mover_badge(mover.change_pct), unsafe_allow_html=True)
+def _mover_row_markdown(mover: MoverOut) -> str:
+    """Собрать компактную строку мувера: подпись (тикер/имя/close) слева, DeltaBadge справа.
+
+    Одна flex-строка вместо вложенных st.columns([3,1]): раньше бейдж улетал к правому краю
+    широкой колонки с большим разрывом до подписи (DESIGN §4: плотность, без пустот). Подпись
+    из MOEX-имён экранируется html.escape (как в kpi.py), бейдж — наш доверенный HTML.
+    """
+    caption = html.escape(_mover_caption(mover))
+    badge = _mover_badge(mover.change_pct)
+    return (
+        '<div class="mover-row">'
+        f'<span class="mover-row__caption">{caption}</span>'
+        f'<span class="mover-row__badge">{badge}</span>'
+        "</div>"
+    )
 
 
 def _render_mover_table(title: str, movers: Sequence[MoverOut]) -> None:
@@ -289,7 +298,7 @@ def _render_mover_table(title: str, movers: Sequence[MoverOut]) -> None:
         render_empty(_MOVERS_EMPTY)
         return
     for mover in movers:
-        _render_mover_row(mover)
+        st.markdown(_mover_row_markdown(mover), unsafe_allow_html=True)
 
 
 def _render_movers(client: ApiClient) -> None:
@@ -304,7 +313,7 @@ def _render_movers(client: ApiClient) -> None:
         render_empty(_MOVERS_EMPTY)
         return
 
-    gainers_col, losers_col = st.columns(2)
+    gainers_col, losers_col = st.columns(2, gap="small")
     with gainers_col:
         _render_mover_table(_SECTION_GAINERS, movers.gainers)
     with losers_col:

@@ -16,7 +16,8 @@ from pathlib import Path
 import streamlit as st
 from streamlit.navigation.page import StreamlitPage
 
-from dashboard.auth import require_auth
+from dashboard.auth import get_api_client, require_auth
+from dashboard.components.sidebar import render_market_context
 from dashboard.pages import monitoring, news, overview, portfolio, stocks
 
 #: Заголовок вкладки браузера (RU-копи — пользовательская строка).
@@ -92,6 +93,7 @@ def main() -> None:
     _inject_css()
     require_auth()
     navigation = _build_navigation()
+    render_market_context(get_api_client())
     _render_sidebar_brand()
     navigation.run()
 

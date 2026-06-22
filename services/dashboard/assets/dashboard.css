@@ -67,6 +67,49 @@
     color: #62666D;
 }
 
+/* --- Сайдбар: рыночная сводка (контекст на каждой странице, DESIGN §4) -- */
+/* Постоянный рыночный пульс (IMOEX + дельта, ставка ЦБ) оправдывает место сайдбара. */
+.sl-market-context {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+    padding-top: 1.1rem;
+    border-top: 1px solid #23252A;
+}
+
+.sl-market-context__head {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #62666D;
+}
+
+.sl-market-context__row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.sl-market-context__label {
+    font-size: 13px;
+    color: #8A8F98;
+}
+
+.sl-market-context__value {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--st-text-color, #F7F8F8);
+    font-feature-settings: "tnum" 1;
+    font-variant-numeric: tabular-nums;
+}
+
 /* --- Вертикальный ритм: умеренно плотнее (DESIGN §4 — data-dense, читаемо) */
 /* Дефолтный gap вертикального блока даёт рыхлый ритм с большими пустотами между
    секциями. Срезаем умеренно: gap каскадит во вложенные блоки (колонки), поэтому

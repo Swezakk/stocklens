@@ -45,6 +45,7 @@ from dashboard.components import filters
 from dashboard.components.charts import build_index_line_chart, render_chart
 from dashboard.components.feedback import render_empty, render_error
 from dashboard.components.kpi import delta_badge_from_values, render_delta_badge, stat_cell
+from dashboard.components.layout import card
 from dashboard.components.transforms import DELTA_GLYPHS, DeltaDirection
 
 #: Заголовок страницы (RU-копи — пользовательская строка).
@@ -58,6 +59,11 @@ _INDEX_CODE = "IMOEX"
 
 #: Лимит выборки индекса для KPI: последняя точка против предыдущей (дельта дня).
 _INDEX_KPI_LIMIT = 2
+
+#: Лимит выборки индекса для спарклайна KPI: полная недавняя серия формирует силуэт линии.
+#: Дельта дня по-прежнему берётся по последним двум точкам; при прежнем limit=2 спарклайн
+#: вырождался в прямую диагональ из двух точек (регресс — чинится бо́льшим окном).
+_INDEX_SPARKLINE_LIMIT = 30
 
 #: Число лидеров в каждой таблице муверов (рост / падение).
 _MOVERS_LIMIT = 5
@@ -167,10 +173,9 @@ def _mover_badge(change_pct: float) -> str:
     return render_delta_badge(direction=direction, text=text)
 
 
-def _mover_caption(mover: MoverOut) -> str:
-    """Подпись строки мувера: «<тикер> · <имя> · <close>» (close — цена закрытия дня)."""
-    close = f"{float(mover.close):.{_INDEX_VALUE_PRECISION}f}"
-    return f"{mover.ticker} · {mover.name} · {close}"
+def _mover_close_text(mover: MoverOut) -> str:
+    """Цена закрытия дня мувера, форматированная под табличные цифры числовой колонки."""
+    return f"{float(mover.close):.{_INDEX_VALUE_PRECISION}f}"
 
 
 def _latest_update_time(runs: Sequence[CollectorRunOut]) -> datetime | None:
@@ -200,7 +205,7 @@ def _format_update_footer(moment: datetime | None) -> str:
 def _render_index_kpi(client: ApiClient) -> None:
     """KPI-ячейка IMOEX: последнее значение + дельта дня + спарклайн (DESIGN §10.1)."""
     try:
-        page = fetch_index(client, index_code=_INDEX_CODE, limit=_INDEX_KPI_LIMIT)
+        page = fetch_index(client, index_code=_INDEX_CODE, limit=_INDEX_SPARKLINE_LIMIT)
     except ApiError as exc:
         render_error(exc.user_message)
         return
@@ -275,17 +280,22 @@ def _render_kpi_strip(client: ApiClient) -> None:
 
 
 def _mover_row_markdown(mover: MoverOut) -> str:
-    """Собрать компактную строку мувера: подпись (тикер/имя/close) слева, DeltaBadge справа.
+    """Собрать плотную строку-грид мувера: тикер · имя · close · DeltaBadge (DESIGN §10.1).
 
-    Одна flex-строка вместо вложенных st.columns([3,1]): раньше бейдж улетал к правому краю
-    широкой колонки с большим разрывом до подписи (DESIGN §4: плотность, без пустот). Подпись
-    из MOEX-имён экранируется html.escape (как в kpi.py), бейдж — наш доверенный HTML.
+    Грид-таблица (CSS .mover-row) с выровненными числовыми колонками вместо прежней flex-строки
+    «подпись слева, бейдж улетел вправо»: в полуширотной колонке space-between давал асимметрию
+    и провал (DESIGN §4 — плотность, без пустот). Тикер/имя из MOEX экранируются html.escape
+    (как в kpi.py), бейдж — наш доверенный HTML.
     """
-    caption = html.escape(_mover_caption(mover))
+    ticker = html.escape(mover.ticker)
+    name = html.escape(mover.name)
+    close = html.escape(_mover_close_text(mover))
     badge = _mover_badge(mover.change_pct)
     return (
         '<div class="mover-row">'
-        f'<span class="mover-row__caption">{caption}</span>'
+        f'<span class="mover-row__ticker">{ticker}</span>'
+        f'<span class="mover-row__name">{name}</span>'
+        f'<span class="mover-row__close">{close}</span>'
         f'<span class="mover-row__badge">{badge}</span>'
         "</div>"
     )
@@ -356,13 +366,17 @@ def _render_update_footer(client: ApiClient) -> None:
 
 
 def render() -> None:
-    """Отрисовать страницу «Обзор»: KPI-полоса → муверы → линия IMOEX → футер (DESIGN §10.1)."""
+    """Отрисовать страницу «Обзор»: KPI-полоса → муверы → линия IMOEX → футер (DESIGN §10.1).
+
+    Каждая секция — карточка на inset-границе (st.container(border=True), CSS превращает её в
+    Linear instrument-panel): группировка границей+тенью вместо разделителей st.divider.
+    """
     st.title(_PAGE_TITLE)
     client = get_api_client()
-    _render_kpi_strip(client)
-    st.divider()
-    _render_movers(client)
-    st.divider()
-    _render_index_chart(client)
-    st.divider()
+    with card("overview-kpi"):
+        _render_kpi_strip(client)
+    with card("overview-movers"):
+        _render_movers(client)
+    with card("overview-index"):
+        _render_index_chart(client)
     _render_update_footer(client)

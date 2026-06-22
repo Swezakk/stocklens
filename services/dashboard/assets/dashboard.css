@@ -1,67 +1,89 @@
 /*
  * StockLens dashboard — тонкий CSS-слой (DESIGN.md §5).
  *
- * Покрывает только то, чего нет в токенах темы config.toml: компактные
- * KPI-ячейки и чипы, табличные цифры (tnum), ужатие верхнего паддинга,
- * плотность строк таблиц.
+ * Покрывает только то, чего нет в токенах темы config.toml: карточки на
+ * inset-границе+тени (Linear instrument-panel — глубина границей, не заливкой),
+ * компактные KPI-ячейки/чипы, табличные цифры (tnum), ужатие верхнего паддинга,
+ * плотность строк, тонкий трекинг заголовков.
  *
  * Селекторы — по стабильным [data-testid] и собственным классам компонентов;
  * хрупкие хеш-классы не используются. Семантические цвета (up/down/flat,
- * тональность) — литеральные хексы той же палитры «Графит+тил»: это биржевая
- * конвенция, не настраиваемая темой, а mutedText не имеет нативного st-токена.
+ * тональность) — литеральные хексы той же палитры «Обсидиан+тил»: это биржевая
+ * конвенция, не настраиваемая темой, а нейтрали Linear не имеют нативного st-токена.
  */
 
 /* --- Ужатие верхнего паддинга основного блока (DESIGN §4) --------------- */
 /* Данные начинаются ближе к верху, не «висят» внизу пустого экрана. */
 [data-testid="stMainBlockContainer"] {
-    padding-top: 1.5rem;
+    padding-top: 1.25rem;
 }
 
 /* --- Вертикальный ритм: умеренно плотнее (DESIGN §4 — data-dense, читаемо) */
-/* Дефолтный gap вертикального блока 14px и паддинги заголовков дают рыхлый ритм
-   с большими пустотами между секциями. Срезаем умеренно: gap каскадит и во вложенные
-   блоки (колонки), поэтому значение сдержанное, чтобы KPI-полоса и строки муверов не
-   слиплись. Заголовки h1/h2/h3 — собственные паддинги Streamlit, тоже подрезаются. */
+/* Дефолтный gap вертикального блока даёт рыхлый ритм с большими пустотами между
+   секциями. Срезаем умеренно: gap каскадит во вложенные блоки (колонки), поэтому
+   значение сдержанное, чтобы KPI-полоса и строки муверов не слиплись. */
 [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] {
     gap: 0.6rem;
 }
 
+/* --- Тонкий трекинг заголовков (Linear: чем крупнее кегль, тем плотнее) --- */
+/* Linear-подпись типографики: отрицательный трекинг на дисплейных размерах. */
 [data-testid="stHeading"] h1 {
-    padding-top: 0.75rem;
-    padding-bottom: 0.5rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.4rem;
+    letter-spacing: -0.011em;
 }
 
 [data-testid="stHeading"] h2,
 [data-testid="stHeading"] h3 {
-    padding-top: 0.5rem;
-    padding-bottom: 0.4rem;
+    padding-top: 0.4rem;
+    padding-bottom: 0.3rem;
+    letter-spacing: -0.008em;
+}
+
+/* --- Карточка Linear: глубина charcoal-заливкой + границей + тенью (DESIGN §5) */
+/* components.layout.card() задаёт st.container(border=True, key="sl-card-…"), Streamlit
+   рендерит стабильный класс st-key-sl-card-…; ловим его префиксом (не хрупкий emotion-хеш).
+   charcoal-поверхность на onyx-холсте «выходит вперёд»: панель-инструмент, не плоский контур.
+   Радиус 12px (Linear cards) перекрывает нативный baseRadius бордера контейнера. */
+[class*="st-key-sl-card-"] {
+    background: #0F1011;
+    border: 1px solid #23252A;
+    border-radius: 12px;
+    box-shadow: rgba(0, 0, 0, 0.4) 0 2px 4px 0;
+    padding: 1rem 1.1rem;
 }
 
 /* --- StatCell: компактная KPI-ячейка (DESIGN §5), не hero-metric -------- */
 .statcell {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
-    padding: 0.5rem 0;
+    gap: 0.2rem;
+    padding: 0.1rem 0 0.3rem;
 }
 
 .statcell__label {
     font-size: 12px;
     font-weight: 500;
     letter-spacing: 0.02em;
-    color: #9BA1A8;
+    color: #8A8F98;
     text-transform: none;
 }
 
 .statcell__value {
-    font-family: "Fira Code", monospace;
-    font-size: 28px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 26px;
     font-weight: 600;
     line-height: 1.1;
+    letter-spacing: -0.01em;
     /* Табличные цифры: KPI и колонки чисел выравниваются по разрядам. */
     font-feature-settings: "tnum" 1;
     font-variant-numeric: tabular-nums;
-    color: var(--st-text-color, #E6E8EB);
+    color: var(--st-text-color, #F7F8F8);
+}
+
+.statcell__delta {
+    margin-top: 0.05rem;
 }
 
 /* --- DeltaBadge: три канала (цвет + глиф + знак), a11y (DESIGN §2.2) ----- */
@@ -69,7 +91,7 @@
     display: inline-flex;
     align-items: center;
     gap: 0.2rem;
-    font-family: "Fira Code", monospace;
+    font-family: "JetBrains Mono", monospace;
     font-size: 13px;
     font-weight: 500;
     font-feature-settings: "tnum" 1;
@@ -88,27 +110,51 @@
     color: #8B93A0;
 }
 
-/* --- Mover-row: компактная строка лидера роста/падения (DESIGN §10.1) --- */
-/* Подпись слева, бейдж сразу за ней — одна flex-строка вместо вложенных колонок,
-   где бейдж улетал к правому краю с большим разрывом до подписи. */
+/* --- Mover-row: плотная выровненная таблица лидеров (DESIGN §10.1) ------- */
+/* Сетка-таблица: тикер (моно) | имя (тянется, обрезается) | close (моно, справа)
+   | Δ% (моно, справа). Числовые колонки выровнены по правому краю и читаются как
+   инструментная панель — а не «подпись слева, бейдж улетел вправо» (старый space-between
+   в полуширотной колонке давал асимметрию и провал). Фикс-ширины числовых колонок дают
+   общее выравнивание разрядов между строками. */
 .mover-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 3.25rem minmax(0, 1fr) 4.5rem auto;
     align-items: baseline;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.15rem 0;
+    gap: 0.5rem;
+    padding: 0.22rem 0;
+    border-bottom: 1px solid #16181B;
 }
 
-.mover-row__caption {
-    font-size: 14px;
-    color: var(--st-text-color, #E6E8EB);
+.mover-row:last-child {
+    border-bottom: none;
+}
+
+.mover-row__ticker {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--st-text-color, #F7F8F8);
+}
+
+.mover-row__name {
+    font-size: 13px;
+    color: #8A8F98;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
+.mover-row__close {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    color: var(--st-text-color, #F7F8F8);
+    text-align: right;
+    font-feature-settings: "tnum" 1;
+    font-variant-numeric: tabular-nums;
+}
+
 .mover-row__badge {
-    flex: 0 0 auto;
+    justify-self: end;
 }
 
 /* --- SentimentChip: пилюля метки тональности (DESIGN §5) ---------------- */
@@ -116,8 +162,8 @@
     display: inline-flex;
     align-items: center;
     padding: 0.1rem 0.5rem;
-    border-radius: 0.5rem;
-    border: 1px solid #2A2D31;
+    border-radius: 0.375rem;
+    border: 1px solid #23252A;
     font-size: 12px;
     font-weight: 500;
     letter-spacing: 0.02em;

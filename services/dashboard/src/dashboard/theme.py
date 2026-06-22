@@ -14,16 +14,21 @@ from typing import Literal
 import plotly.graph_objects as go
 from stocklens_core.enums import CollectorRunStatus, SentimentLabel
 
-# Токены поверхности и текста (палитра «Графит+тил»).
-BACKGROUND = "#131416"
-SECONDARY_BACKGROUND = "#1B1D20"
-ELEVATED = "#232629"
-BORDER = "#2A2D31"
-TEXT = "#E6E8EB"
-MUTED_TEXT = "#9BA1A8"
-FAINT_TEXT = "#6B7178"
+# Токены поверхности и текста (палитра «Обсидиан+тил», Linear-адаптированная).
+# Поверхности — почти-чёрная near-black шкала Linear (onyx→charcoal→obsidian): данные
+# «выходят вперёд» на тёмной подложке, карточки держатся inset-границей+тенью, не заливкой.
+BACKGROUND = "#08090A"  # canvas (Linear onyx) — самая глубокая поверхность приложения
+SECONDARY_BACKGROUND = "#0F1011"  # карточки/sidebar/инпуты (Linear charcoal), на ступень выше
+ELEVATED = "#161718"  # приподнятые поверхности: поповеры, hover-строки (Linear obsidian)
+BORDER = "#23252A"  # hairline-границы карточек и таблиц (Linear graphite)
+# Нейтральная текстовая шкала Linear (snow→fog→slate): контраст к onyx ≥4.5:1 (§12).
+TEXT = "#F7F8F8"  # основной текст (Linear snow — почти-белый, не чистый #fff)
+MUTED_TEXT = "#8A8F98"  # вторичный текст, подписи значений (Linear fog)
+FAINT_TEXT = "#62666D"  # третичные метки ≥12px, не несущие смысла в одиночку (Linear slate)
 
-# Акцент: единственный сдержанный тил для интерактивных/активных состояний.
+# Акцент: единственный сдержанный тил для интерактивных/активных состояний. Сохранён вместо
+# фирменного lime Linear осознанно: lime — третий цвет зелёного семейства в системе, где
+# зелёный=рост/красный=падение, и читался бы как «сильный плюс», мутя up/down-семантику.
 ACCENT = "#2DD4BF"
 ACCENT_STRONG = "#14B8A6"
 LINK = "#5EEAD4"
@@ -106,8 +111,8 @@ CHART_DIVERGING: list[str] = [
 ]
 
 # --- Шрифты графиков (DESIGN §3) -------------------------------------------
-_FONT_FAMILY = "Fira Sans, sans-serif"
-_FONT_FAMILY_MONO = "Fira Code, monospace"
+_FONT_FAMILY = "Inter, sans-serif"
+_FONT_FAMILY_MONO = "'JetBrains Mono', monospace"
 _FONT_SIZE = 14
 
 _CHART_MARGIN = {"l": 16, "r": 16, "t": 32, "b": 16}

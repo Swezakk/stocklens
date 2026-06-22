@@ -19,6 +19,8 @@ from dashboard.api_client.dto import (
 )
 from dashboard.components.transforms import DeltaDirection
 from dashboard.pages.overview import (
+    _INDEX_KPI_LIMIT,
+    _INDEX_SPARKLINE_LIMIT,
     _format_update_footer,
     _index_points,
     _latest_currency_rate,
@@ -26,7 +28,7 @@ from dashboard.pages.overview import (
     _latest_two_closes,
     _latest_update_time,
     _mover_badge,
-    _mover_caption,
+    _mover_close_text,
     _mover_direction,
     _mover_row_markdown,
     _period_bounds,
@@ -182,23 +184,26 @@ def test_mover_badge_flat_uses_arrow_and_flat_class() -> None:
     assert "delta-badge--flat" in badge
 
 
-def test_mover_caption_joins_ticker_name_and_close() -> None:
-    mover = _mover("SBER", "Сбербанк", "310.55", "305.00", 1.82)
-    assert _mover_caption(mover) == "SBER · Сбербанк · 310.55"
+def test_mover_close_text_formats_close_two_decimals() -> None:
+    mover = _mover("SBER", "Сбербанк", "310.5", "305.00", 1.82)
+    assert _mover_close_text(mover) == "310.50"
 
 
-def test_mover_row_markdown_pairs_caption_and_badge_in_one_flex_row() -> None:
+def test_mover_row_markdown_renders_ticker_name_close_and_badge_in_grid() -> None:
+    """Плотный грид: тикер/имя/close в колонках + бейдж (фикс асимметрии space-between)."""
     mover = _mover("SBER", "Сбербанк", "310.55", "305.00", 1.82)
 
     markdown = _mover_row_markdown(mover)
 
     assert 'class="mover-row"' in markdown
-    assert "SBER · Сбербанк · 310.55" in markdown
+    assert '<span class="mover-row__ticker">SBER</span>' in markdown
+    assert '<span class="mover-row__name">Сбербанк</span>' in markdown
+    assert '<span class="mover-row__close">310.55</span>' in markdown
     assert "▲ +1.82%" in markdown
     assert "delta-badge--up" in markdown
 
 
-def test_mover_row_markdown_escapes_caption_html() -> None:
+def test_mover_row_markdown_escapes_name_html() -> None:
     """Имя бумаги MOEX с «&»/«<» экранируется, как в kpi.py (защита от поломки разметки)."""
     mover = _mover("X", "A & B <co>", "10.00", "9.00", 1.0)
 
@@ -207,6 +212,16 @@ def test_mover_row_markdown_escapes_caption_html() -> None:
     assert "&amp;" in markdown
     assert "&lt;co&gt;" in markdown
     assert "<co>" not in markdown
+
+
+def test_index_sparkline_limit_exceeds_delta_minimum() -> None:
+    """KPI IMOEX тянет полную серию под спарклайн, не 2 точки под дельту дня.
+
+    Регресс: при выборке ровно ``_INDEX_KPI_LIMIT`` точек спарклайн вырождался в прямую
+    диагональ из двух точек. Окно спарклайна должно быть заметно больше минимума дельты.
+    """
+    assert _INDEX_SPARKLINE_LIMIT > _INDEX_KPI_LIMIT
+    assert _INDEX_SPARKLINE_LIMIT >= 20
 
 
 def test_latest_update_time_picks_max_finished_success_in_moscow_tz() -> None:

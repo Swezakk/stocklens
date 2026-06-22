@@ -302,8 +302,12 @@ def _mover_row_markdown(mover: MoverOut) -> str:
 
 
 def _render_mover_table(title: str, movers: Sequence[MoverOut]) -> None:
-    """Отрисовать компактную таблицу муверов (рост или падение) с заголовком секции."""
-    st.subheader(title)
+    """Отрисовать компактную таблицу муверов (рост или падение) с overline-меткой колонки.
+
+    Метка — overline (11px caps), а не ``st.subheader`` (h3): иначе она одного размера с
+    секцией «Движение дня» (тоже h3) и иерархия читается плоско (DESIGN §3).
+    """
+    st.markdown(f'<span class="sl-overline">{html.escape(title)}</span>', unsafe_allow_html=True)
     if not movers:
         render_empty(_MOVERS_EMPTY)
         return

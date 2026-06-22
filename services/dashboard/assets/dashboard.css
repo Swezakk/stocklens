@@ -88,19 +88,50 @@
     gap: 0.6rem;
 }
 
-/* --- Тонкий трекинг заголовков (Linear: чем крупнее кегль, тем плотнее) --- */
-/* Linear-подпись типографики: отрицательный трекинг на дисплейных размерах. */
+/* --- Type ramp заголовков (enforce DESIGN §3, не дефолты Streamlit) ------ */
+/* Дефолты Streamlit игнорируют шкалу §3 и раздувают кегль (замер: h1 38.5px, h3 24.5px),
+   из-за чего hero оторван, а секция и под-секция (обе h3) сливаются. Задаём размеры явно:
+   hero 28/700, секция 18/600. Трекинг — отрицательный тем сильнее, чем крупнее кегль
+   (Linear-подпись). st.title→h1 (hero); st.subheader→h3 (секция, h2 не используется). */
 [data-testid="stHeading"] h1 {
     padding-top: 0.5rem;
     padding-bottom: 0.4rem;
-    letter-spacing: -0.011em;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
 }
 
 [data-testid="stHeading"] h2,
 [data-testid="stHeading"] h3 {
     padding-top: 0.4rem;
     padding-bottom: 0.3rem;
-    letter-spacing: -0.008em;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: -0.015em;
+}
+
+/* --- Overline/eyebrow: микро-метки колонок данных (под-секция, DESIGN §3) - */
+/* «Лидеры роста/падения» были h3 — одного размера с секцией «Движение дня». Как overline
+   (11px caps) они читаются колоночными метками под секцией 18px, а не вторым заголовком. */
+.sl-overline {
+    display: block;
+    margin: 0.15rem 0 0.55rem;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #8A8F98;
+}
+
+/* --- Бренд-лого в сайдбаре крупнее (имя ~18px = уровень секции, DESIGN §3) */
+/* st.logo «large» рендерит img в 28px → имя ~12.6px (мельче body). Поднимаем высоту img
+   до 40px (имя ~18px). Scoped на сайдбар-лого: свёрнутое лого в шапке (stLogo) не трогаем —
+   иначе перекрыло бы кнопку разворота сайдбара. */
+img[data-testid="stSidebarLogo"] {
+    height: 40px;
+    width: auto;
 }
 
 /* --- Карточка Linear: глубина charcoal-заливкой + границей + тенью (DESIGN §5) */

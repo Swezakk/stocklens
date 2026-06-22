@@ -30,19 +30,18 @@ from dashboard.api_client.client import ApiClient
 from dashboard.api_client.dto import (
     BacktestResultOut,
     EquityPointOut,
-    OptimizeRequest,
     OptimizeResult,
     PortfolioSummaryOut,
     PositionIn,
     PositionOut,
 )
 from dashboard.api_client.errors import ApiError, ApiServerError
-from dashboard.api_client.fetch import fetch_backtest, fetch_portfolio_summary, get_client
-from dashboard.auth import (
-    build_on_unauthorized,
-    build_token_provider,
-    get_token_manager,
+from dashboard.api_client.fetch import (
+    fetch_backtest,
+    fetch_optimize,
+    fetch_portfolio_summary,
 )
+from dashboard.auth import get_api_client
 from dashboard.components import charts, feedback
 from dashboard.components.kpi import delta_badge_from_values, render_delta_badge, stat_cell
 from dashboard.components.transforms import DELTA_GLYPHS, DeltaDirection
@@ -92,7 +91,7 @@ _POSITION_COLUMNS = (
 
 #: RU-копи пустых состояний и сообщений формы.
 _EMPTY_POSITIONS = "Портфель пуст: добавьте первую позицию через форму ниже."
-_EMPTY_EQUITY = "Недостаточно истории котировок для построения equity-кривой."
+_EMPTY_EQUITY = "Недостаточно истории котировок для построения кривой капитала."
 _EMPTY_FRONTIER = "Недостаточно данных для построения эффективной границы (нужно ≥ 2 бумаги)."
 _POSITION_CREATED = "Позиция по тикеру {ticker} сохранена."
 _POSITION_DELETED = "Позиция по тикеру {ticker} удалена."
@@ -233,26 +232,12 @@ def _render_load_failure(error: ApiError, empty_message: str) -> None:
 def render() -> None:
     """Отрисовать страницу «Портфель» (DESIGN §10.5) — тонкая оркестрация."""
     st.title(_PAGE_TITLE)
-    client = _resolve_client()
+    client = get_api_client()
 
     summary = _load_summary(client)
     _render_positions_section(client, summary)
     _render_equity_section(client)
     _render_frontier_section(client)
-
-
-def _resolve_client() -> ApiClient:
-    """Собрать singleton ApiClient через auth-провайдеры (DESIGN §6, §7, §8).
-
-    Провайдер токена и хук 401 связываются с TokenManager на st.session_state; сам клиент
-    держится singleton-ом в st.cache_resource (get_client), поэтому повторные rerun не
-    плодят пулы соединений. Это канонический путь получения клиента на странице.
-    """
-    manager = get_token_manager()
-    return get_client(
-        build_token_provider(manager),
-        build_on_unauthorized(manager),
-    )
 
 
 def _load_summary(client: ApiClient) -> PortfolioSummaryOut | None:
@@ -424,11 +409,12 @@ def _submit_delete(client: ApiClient, ticker: str | None) -> None:
 def _invalidate_portfolio_caches() -> None:
     """Сбросить кэш fetch портфеля после write (DESIGN §8: ручной точечный .clear()).
 
-    Чистятся обёртки, чьи данные меняет write-путь: сводка и бэктест зависят от состава
-    позиций, поэтому после create/delete их кэш невалиден.
+    Чистятся обёртки, чьи данные меняет write-путь: сводка, бэктест и оптимизация зависят
+    от состава позиций, поэтому после create/delete их кэш невалиден.
     """
     fetch_portfolio_summary.clear()
     fetch_backtest.clear()
+    fetch_optimize.clear()
 
 
 def _render_equity_section(client: ApiClient) -> None:
@@ -472,7 +458,7 @@ def _render_risk_metrics(backtest: BacktestResultOut) -> None:
         )
     with drawdown_col:
         stat_cell(
-            "Max drawdown портфеля",
+            "Макс. просадка портфеля",
             f"{backtest.portfolio_max_drawdown * 100:.2f}%",
             delta=delta_badge_from_values(
                 current=backtest.portfolio_max_drawdown,
@@ -501,12 +487,13 @@ def _render_frontier_section(client: ApiClient) -> None:
 def _load_optimize(client: ApiClient) -> OptimizeResult | None:
     """Запросить оптимизацию текущих позиций (три ветки сетевого вызова, DESIGN §10).
 
-    Оптимизация — POST с телом (не кэш-обёртка): передаём дефолтный запрос (tickers=None —
-    текущие позиции, стратегия max-Sharpe). 422 «нужно ≥ 2 бумаги» — валидная ошибка сервера.
+    Оптимизация кэшируется по нормализованным параметрам (period_days, стратегия max-Sharpe;
+    tickers=None — текущие позиции); дорогой солвер Марковица не пересчитывается на каждый
+    rerun. 422 «нужно ≥ 2 бумаги» — валидная ошибка сервера; ``cache_data`` не кэширует
+    исключения, поэтому пустое состояние перерешается заново при следующем rerun.
     """
-    request = OptimizeRequest(period_days=_SUMMARY_PERIOD_DAYS)
     try:
-        return client.optimize(request.model_dump(mode="json"))
+        return fetch_optimize(client, period_days=_SUMMARY_PERIOD_DAYS)
     except ApiError as exc:
         _render_load_failure(exc, _EMPTY_FRONTIER)
         return None

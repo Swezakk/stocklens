@@ -158,11 +158,17 @@ def test_sentiment_trend_chart_colors_markers_by_sign() -> None:
         SentimentDayPoint(
             day=date(2026, 6, 19), mean_score=0.30, counts={SentimentLabel.NEGATIVE: 1}
         ),
+        SentimentDayPoint(
+            day=date(2026, 6, 20),
+            mean_score=0.50,
+            counts={SentimentLabel.NEUTRAL: 1},
+        ),
     ]
     fig = build_sentiment_trend_chart(series)
     assert fig.to_json()
     marker_colors = tuple(fig.data[0].marker.color)
-    assert marker_colors == (theme.UP, theme.DOWN)
+    # Точный нейтральный центр (0.5) красится FLAT — иначе ветка `else` оставалась бы непокрытой.
+    assert marker_colors == (theme.UP, theme.DOWN, theme.FLAT)
 
 
 def test_word_frequency_chart_serializes_with_accent_bars() -> None:

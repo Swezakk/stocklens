@@ -10,8 +10,10 @@ from typing import Any
 import httpx
 import pytest
 import respx
+import streamlit as st
+from dashboard.api_client.client import ApiClient
 from dashboard.api_client.errors import ApiUnavailableError, AuthError
-from dashboard.auth import AuthConfig, TokenManager
+from dashboard.auth import AuthConfig, TokenManager, get_api_client
 
 _BASE_URL = "http://api.test"
 _PREFIX = "/api/v1"
@@ -199,3 +201,21 @@ def test_mint_raises_api_unavailable_on_network_error() -> None:
 
     with pytest.raises(ApiUnavailableError):
         manager.get_token()
+
+
+def test_get_api_client_returns_same_cached_singleton(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Аксессор отдаёт тот же singleton ApiClient между rerun (st.cache_resource цел).
+
+    Провайдеры ленивы — токен не минтится, сети нет. ``session_state`` подменяется dict-ом,
+    чтобы аксессор работал без Streamlit-рантайма; кэш ресурсов чистится для изоляции.
+    """
+    monkeypatch.setattr(st, "session_state", {"password": _PASSWORD})
+    st.cache_resource.clear()
+
+    first = get_api_client()
+    second = get_api_client()
+
+    assert isinstance(first, ApiClient)
+    assert first is second
+
+    st.cache_resource.clear()

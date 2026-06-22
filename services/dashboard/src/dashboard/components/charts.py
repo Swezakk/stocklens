@@ -106,7 +106,7 @@ def _add_dividend_markers(fig: go.Figure, dividends: Sequence[DividendOut]) -> N
             x=ex_date_iso,
             yref="paper",
             y=1,
-            text="div",
+            text="див.",
             showarrow=False,
             font={"color": theme.WARNING, "size": 11},
             yshift=8,

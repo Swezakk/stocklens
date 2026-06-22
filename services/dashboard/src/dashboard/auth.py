@@ -27,7 +27,9 @@ import httpx
 import streamlit as st
 from pydantic import BaseModel
 
+from dashboard.api_client.client import ApiClient
 from dashboard.api_client.errors import ApiUnavailableError, AuthError
+from dashboard.api_client.fetch import get_client
 from dashboard.settings import get_settings
 
 #: Путь выдачи токена под префиксом версии (form-encoded OAuth2 Password Flow).
@@ -205,6 +207,21 @@ def build_on_unauthorized(manager: TokenManager) -> Callable[[], None]:
 def get_token_manager() -> TokenManager:
     """TokenManager, привязанный к ``st.session_state`` (для гейта и провайдеров клиента)."""
     return TokenManager(config=build_auth_config(), state=st.session_state)
+
+
+def get_api_client() -> ApiClient:
+    """Единая точка получения готового ApiClient на странице (DESIGN §6, §7, §8).
+
+    Связывает провайдер токена и хук 401 с TokenManager на ``st.session_state`` и отдаёт
+    тот же singleton из ``st.cache_resource`` (``get_client``), поэтому rerun не плодит
+    пулы соединений. Здесь зависимость auth → fetch (а не наоборот): ``fetch.get_client``
+    сознательно не знает про auth, чтобы кэш-слой не зависел от реализации аутентификации.
+    """
+    manager = get_token_manager()
+    return get_client(
+        build_token_provider(manager),
+        build_on_unauthorized(manager),
+    )
 
 
 def require_auth() -> None:

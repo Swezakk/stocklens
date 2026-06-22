@@ -21,7 +21,7 @@
 """
 
 from datetime import datetime
-from typing import Literal, NamedTuple
+from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
 import streamlit as st
@@ -29,13 +29,10 @@ from stocklens_core.enums import CollectorRunStatus
 
 from dashboard.api_client.dto import CollectorRunOut
 from dashboard.api_client.errors import ApiError
-from dashboard.api_client.fetch import fetch_collector_runs, get_client
-from dashboard.auth import (
-    build_on_unauthorized,
-    build_token_provider,
-    get_token_manager,
-)
+from dashboard.api_client.fetch import fetch_collector_runs
+from dashboard.auth import get_api_client
 from dashboard.components.feedback import render_empty, render_error
+from dashboard.theme import STATUS_BADGE_COLORS, STATUS_BADGE_ICONS, BadgeColor
 
 #: Заголовок страницы (RU-копи — пользовательская строка).
 _PAGE_TITLE = "Мониторинг"
@@ -75,40 +72,35 @@ _COL_RECORDS = "Записей добавлено"
 _COL_ERROR = "Ошибка"
 
 
-#: Именованные цвета бейджа статуса (подмножество палитры ``st.badge`` для трёх статусов).
-_BadgeColor = Literal["green", "orange", "red"]
-
-
 class _StatusVisual(NamedTuple):
     """Тройной a11y-канал статуса запуска: русский текст + ``:material/``-иконка + цвет.
 
     Цвет — не единственный индикатор (DESIGN §12): текст и иконка дублируют его для
     пользователей, не различающих цвета. ``accent`` — именованный цвет ``st.badge``
-    (``green`` / ``orange`` / ``red``), несущий тот же сигнал, что иконка и текст.
+    из ``theme.STATUS_BADGE_COLORS``, несущий тот же сигнал, что иконка и текст.
     """
 
     label: str
     icon: str
-    accent: _BadgeColor
+    accent: BadgeColor
 
 
-#: Визуальное представление каждого статуса (без хардкода строк — ключ по StrEnum, инвариант №4).
+#: Русский текст статуса (user-facing копи живёт на странице, не в theme).
+_STATUS_LABELS: dict[CollectorRunStatus, str] = {
+    CollectorRunStatus.SUCCESS: "Успешно",
+    CollectorRunStatus.PARTIAL: "Частично",
+    CollectorRunStatus.FAILED: "Сбой",
+}
+
+
+#: Визуальное представление каждого статуса: текст со страницы + цвет/иконка из theme.
 _STATUS_VISUALS: dict[CollectorRunStatus, _StatusVisual] = {
-    CollectorRunStatus.SUCCESS: _StatusVisual(
-        label="Успешно",
-        icon=":material/check_circle:",
-        accent="green",
-    ),
-    CollectorRunStatus.PARTIAL: _StatusVisual(
-        label="Частично",
-        icon=":material/warning:",
-        accent="orange",
-    ),
-    CollectorRunStatus.FAILED: _StatusVisual(
-        label="Сбой",
-        icon=":material/error:",
-        accent="red",
-    ),
+    status: _StatusVisual(
+        label=_STATUS_LABELS[status],
+        icon=STATUS_BADGE_ICONS[status],
+        accent=STATUS_BADGE_COLORS[status],
+    )
+    for status in CollectorRunStatus
 }
 
 
@@ -158,7 +150,8 @@ def _recent_errors(runs: list[CollectorRunOut]) -> list[CollectorRunOut]:
     failed = [
         run
         for run in runs
-        if run.status is CollectorRunStatus.FAILED or run.error_message is not None
+        if run.status is CollectorRunStatus.FAILED
+        or bool(run.error_message and run.error_message.strip())
     ]
     return sorted(failed, key=lambda run: run.started_at, reverse=True)
 
@@ -187,11 +180,7 @@ def _load_runs() -> list[CollectorRunOut]:
     ``ApiError`` всплывает в ``render``, где раскладывается по веткам ``feedback`` —
     здесь не глушится.
     """
-    client = get_client(
-        build_token_provider(get_token_manager()),
-        build_on_unauthorized(get_token_manager()),
-    )
-    page = fetch_collector_runs(client, limit=_JOURNAL_LIMIT)
+    page = fetch_collector_runs(get_api_client(), limit=_JOURNAL_LIMIT)
     return page.items
 
 

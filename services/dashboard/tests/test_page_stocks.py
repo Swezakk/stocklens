@@ -10,7 +10,7 @@ UI-раскладка не тестируется (DESIGN §10); тестиру�
 from datetime import date
 from decimal import Decimal
 
-from dashboard.api_client.dto import CandleOut, DividendOut, SecurityOut, SecurityPage
+from dashboard.api_client.dto import CandleOut, DividendOut, SecurityOut
 from dashboard.components.charts import build_comparison_chart
 from dashboard.pages.stocks import (
     _dividends_in_window,
@@ -51,10 +51,9 @@ def _security(ticker: str) -> SecurityOut:
     )
 
 
-def _security_page(tickers: list[str]) -> SecurityPage:
-    """Собрать SecurityPage из списка тикеров."""
-    items = [_security(ticker) for ticker in tickers]
-    return SecurityPage(items=items, total=len(items), limit=len(items), offset=0)
+def _securities(tickers: list[str]) -> list[SecurityOut]:
+    """Собрать список SecurityOut из тикеров (вход хелпера _ticker_options)."""
+    return [_security(ticker) for ticker in tickers]
 
 
 def _dividend(ex_date: date) -> DividendOut:
@@ -81,12 +80,12 @@ def test_period_bounds_one_month_window() -> None:
 
 
 def test_ticker_options_sorted_alphabetically() -> None:
-    page = _security_page(["GAZP", "SBER", "AFLT"])
-    assert _ticker_options(page) == ["AFLT", "GAZP", "SBER"]
+    securities = _securities(["GAZP", "SBER", "AFLT"])
+    assert _ticker_options(securities) == ["AFLT", "GAZP", "SBER"]
 
 
-def test_ticker_options_empty_page_returns_empty() -> None:
-    assert _ticker_options(_security_page([])) == []
+def test_ticker_options_empty_list_returns_empty() -> None:
+    assert _ticker_options([]) == []
 
 
 def test_sort_candles_ascending_orders_by_trade_date() -> None:

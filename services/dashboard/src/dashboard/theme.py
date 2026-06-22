@@ -9,8 +9,10 @@ config.toml chart* зеркалят те же хексы для нативных
 без хардкода строковых литералов; инвариант №4).
 """
 
+from typing import Literal
+
 import plotly.graph_objects as go
-from stocklens_core.enums import SentimentLabel
+from stocklens_core.enums import CollectorRunStatus, SentimentLabel
 
 # Токены поверхности и текста (палитра «Графит+тил»).
 BACKGROUND = "#131416"
@@ -37,6 +39,29 @@ SENTIMENT_COLORS: dict[SentimentLabel, str] = {
     SentimentLabel.POSITIVE: UP,
     SentimentLabel.NEUTRAL: FLAT,
     SentimentLabel.NEGATIVE: DOWN,
+}
+
+# Именованный цвет ``st.badge`` (не hex-токен) для статусов запусков сборщиков.
+#
+# ``st.badge`` принимает ТОЛЬКО именованные цвета палитры Streamlit
+# (red/orange/yellow/green/blue/violet/gray), а не произвольный hex — это контракт
+# виджета (streamlit 1.58: markdown.badge color=Literal[...]). Поэтому источник истины
+# статусных цветов — именованные строки, а не chart-токены выше. Тип сужен до тройки
+# Literal, чтобы значение присваивалось параметру ``color`` без ослабления mypy strict.
+BadgeColor = Literal["green", "orange", "red"]
+
+# Источник истины цвета статуса запуска (единое место — рядом с прочими токенами темы).
+STATUS_BADGE_COLORS: dict[CollectorRunStatus, BadgeColor] = {
+    CollectorRunStatus.SUCCESS: "green",
+    CollectorRunStatus.PARTIAL: "orange",
+    CollectorRunStatus.FAILED: "red",
+}
+
+# ``:material/``-иконка статуса запуска: визуальный токен, дублирующий цвет (a11y, §12).
+STATUS_BADGE_ICONS: dict[CollectorRunStatus, str] = {
+    CollectorRunStatus.SUCCESS: ":material/check_circle:",
+    CollectorRunStatus.PARTIAL: ":material/warning:",
+    CollectorRunStatus.FAILED: ":material/error:",
 }
 
 # Мульти-серии: тил-ведущий, без чистых семантических зелёного/красного,

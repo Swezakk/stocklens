@@ -15,7 +15,7 @@ render() — тонкая оркестрация: всё нетривиальн�
 """
 
 from collections.abc import Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -35,15 +35,11 @@ from dashboard.api_client.fetch import (
     fetch_collector_runs,
     fetch_currency_rates,
     fetch_index,
+    fetch_index_window,
     fetch_key_rate,
     fetch_movers,
-    get_client,
 )
-from dashboard.auth import (
-    build_on_unauthorized,
-    build_token_provider,
-    get_token_manager,
-)
+from dashboard.auth import get_api_client
 from dashboard.components import filters
 from dashboard.components.charts import build_index_line_chart, render_chart
 from dashboard.components.feedback import render_empty, render_error
@@ -94,6 +90,17 @@ _UPDATE_UNKNOWN = "Данные обновлены: время последне�
 _INDEX_VALUE_PRECISION = 2
 _CURRENCY_VALUE_PRECISION = 4
 _KEY_RATE_VALUE_PRECISION = 2
+
+
+def _period_bounds(period_days: int, reference: date) -> tuple[str, str]:
+    """ISO-границы окна ``[reference - period_days, reference]`` для запроса линии индекса.
+
+    Линия IMOEX за выбранный период задаётся окном дат, а не record-count: ``period_days``
+    — календарные дни выбранного периода, а ``limit`` API считал бы записи (≈250 торговых
+    дней в году) и при 365 упёрся бы в HTTP 422. ``reference`` инъектируется — функция чистая.
+    """
+    date_from = reference - timedelta(days=period_days)
+    return date_from.isoformat(), reference.isoformat()
 
 
 def _index_points(values: Sequence[IndexValueOut]) -> list[tuple[date, float]]:
@@ -187,15 +194,6 @@ def _format_update_footer(moment: datetime | None) -> str:
     if moment is None:
         return _UPDATE_UNKNOWN
     return f"{_UPDATE_PREFIX} {moment.strftime(_UPDATE_TIME_FORMAT)} МСК"
-
-
-def _client() -> ApiClient:
-    """Singleton ApiClient на сессию с провайдерами токена из auth (DESIGN §6, §7, §8)."""
-    manager = get_token_manager()
-    return get_client(
-        _token_provider=build_token_provider(manager),
-        _on_unauthorized=build_on_unauthorized(manager),
-    )
 
 
 def _render_index_kpi(client: ApiClient) -> None:
@@ -317,15 +315,21 @@ def _render_index_chart(client: ApiClient) -> None:
     """Линия IMOEX за выбранный пользователем период (filters.select_period, DESIGN §10.1)."""
     st.subheader(_SECTION_INDEX)
     period_days = filters.select_period(key="overview_period")
+    date_from, date_to = _period_bounds(period_days, datetime.now(tz=_MOSCOW_TZ).date())
     try:
-        page = fetch_index(client, index_code=_INDEX_CODE, limit=period_days)
+        values = fetch_index_window(
+            client,
+            index_code=_INDEX_CODE,
+            date_from=date_from,
+            date_to=date_to,
+        )
     except ApiError as exc:
         render_error(exc.user_message)
         return
-    if not page.items:
+    if not values:
         render_empty(_INDEX_EMPTY)
         return
-    render_chart(build_index_line_chart(_index_points(page.items)))
+    render_chart(build_index_line_chart(_index_points(values)))
 
 
 def _render_update_footer(client: ApiClient) -> None:
@@ -345,7 +349,7 @@ def _render_update_footer(client: ApiClient) -> None:
 def render() -> None:
     """Отрисовать страницу «Обзор»: KPI-полоса → муверы → линия IMOEX → футер (DESIGN §10.1)."""
     st.title(_PAGE_TITLE)
-    client = _client()
+    client = get_api_client()
     _render_kpi_strip(client)
     st.divider()
     _render_movers(client)

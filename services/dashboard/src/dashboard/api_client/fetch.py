@@ -14,22 +14,32 @@ underscore-параметром ``_client`` — Streamlit его не хэшир
 зависимости этого модуля от ещё не существующего auth.py.
 """
 
+from collections.abc import Callable
+
 import streamlit as st
 from stocklens_core.enums import CollectorRunStatus, Currency, SentimentLabel
 
 from dashboard.api_client.client import ApiClient, OnUnauthorized, TokenProvider
 from dashboard.api_client.dto import (
     BacktestResultOut,
+    CandleOut,
     CandlePage,
     CollectorRunPage,
     CurrencyRatePage,
+    DividendOut,
     DividendPage,
+    IndexValueOut,
     IndexValuePage,
     KeyRatePage,
     MoversOut,
     NewsOut,
     NewsPage,
+    OptimizationStrategy,
+    OptimizeRequest,
+    OptimizeResult,
+    Page,
     PortfolioSummaryOut,
+    SecurityOut,
     SecurityPage,
 )
 from dashboard.settings import get_settings
@@ -40,6 +50,34 @@ _CACHE_TTL_SECONDS = _SETTINGS.cache_ttl_seconds
 
 #: Размер страницы при добивании корпуса новостей (DESIGN §9: _MAX_LIMIT API = 200).
 _NEWS_PAGE_LIMIT = 200
+
+#: Размер страницы пагинированных добор-циклов (API _MAX_LIMIT = 200: limit>200 → HTTP 422).
+#: Любой per-request limit обязан быть ≤ 200, иначе FastAPI Query(le=200) отклоняет запрос
+#: валидацией ДО выполнения зависимости. Поэтому крупные выборки добираются страницами.
+_API_PAGE_LIMIT = 200
+
+#: Жёсткий потолок страниц добор-цикла (защита от рантэвей-пагинации, как у корпуса новостей).
+#: 50 страниц × 200 = 10000 записей — заведомо выше любой дневной выборки дашборда.
+_MAX_PAGES = 50
+
+
+def _collect_pages[T](fetch_page: Callable[[int], Page[T]]) -> list[T]:
+    """Собрать все элементы пагинированного эндпоинта добор-циклом по offset (DESIGN §9).
+
+    Каждая страница запрашивается с ``offset`` кратным ``_API_PAGE_LIMIT``; цикл идёт до
+    исчерпания (``len(items) >= total`` или пустая страница) либо до жёсткого потолка
+    ``_MAX_PAGES`` (защита от рантэвей-пагинации). Per-request limit фиксирован 200 внутри
+    ``fetch_page``, поэтому ни один запрос не упрётся в HTTP 422 (API _MAX_LIMIT=200).
+    """
+    items: list[T] = []
+    offset = 0
+    for _ in range(_MAX_PAGES):
+        page = fetch_page(offset)
+        items.extend(page.items)
+        offset += _API_PAGE_LIMIT
+        if not page.items or len(items) >= page.total:
+            break
+    return items
 
 
 @st.cache_resource
@@ -134,6 +172,26 @@ def fetch_securities(
     return _client.get_securities(is_active=is_active, limit=limit, offset=offset)
 
 
+def fetch_all_securities(
+    _client: ApiClient,
+    is_active: bool | None = None,
+) -> list[SecurityOut]:
+    """Собрать ВЕСЬ список бумаг пагинированным циклом (per-request limit ≤ 200, §9).
+
+    Активная MOEX-вселенная (~200+ бумаг) не умещается в одну страницу API (_MAX_LIMIT=200),
+    а запрос limit>200 отклоняется валидацией FastAPI (HTTP 422). Поэтому страницы по 200
+    добираются до достижения реального ``total`` — без молчаливого усечения списка тикеров.
+
+    Функция НЕ кэшируется (возвращает list, а не Page): кэшируется единичная страница
+    ``fetch_securities``, как ``fetch_news_corpus`` композирует ``fetch_news``.
+    """
+    return _collect_pages(
+        lambda offset: fetch_securities(
+            _client, is_active=is_active, limit=_API_PAGE_LIMIT, offset=offset
+        )
+    )
+
+
 @st.cache_data(ttl=_CACHE_TTL_SECONDS, show_spinner=False)
 def fetch_candles(
     _client: ApiClient,
@@ -153,6 +211,30 @@ def fetch_candles(
     )
 
 
+def fetch_candles_window(
+    _client: ApiClient,
+    ticker: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[CandleOut]:
+    """Собрать ВСЕ свечи окна ``[date_from, date_to]`` пагинацией (per-request limit ≤ 200).
+
+    Годовое окно ≈ 250 торговых дней > 200, а limit>200 → HTTP 422. Сервер уже фильтрует по
+    окну дат, поэтому его ``total`` равен числу свечей окна — добор страницами даёт ровно
+    окно, не больше. Без кэша: композирует кэшируемую ``fetch_candles``.
+    """
+    return _collect_pages(
+        lambda offset: fetch_candles(
+            _client,
+            ticker=ticker,
+            date_from=date_from,
+            date_to=date_to,
+            limit=_API_PAGE_LIMIT,
+            offset=offset,
+        )
+    )
+
+
 @st.cache_data(ttl=_CACHE_TTL_SECONDS, show_spinner=False)
 def fetch_dividends(
     _client: ApiClient,
@@ -162,6 +244,45 @@ def fetch_dividends(
 ) -> DividendPage:
     """Кэш-обёртка GET /data/dividends."""
     return _client.get_dividends(ticker=ticker, limit=limit, offset=offset)
+
+
+def fetch_dividends_all(
+    _client: ApiClient,
+    ticker: str | None = None,
+) -> list[DividendOut]:
+    """Собрать ВСЮ историю дивидендов бумаги пагинацией (per-request limit ≤ 200).
+
+    ``/data/dividends`` не фильтруется по дате (вся история), у долго-листингованной бумаги
+    выплат может быть >200, а limit>200 → HTTP 422. Окно периода применяется на странице
+    после фетча (``_dividends_in_window``). Без кэша: композирует кэшируемую ``fetch_dividends``.
+    """
+    return _collect_pages(
+        lambda offset: fetch_dividends(_client, ticker=ticker, limit=_API_PAGE_LIMIT, offset=offset)
+    )
+
+
+def fetch_index_window(
+    _client: ApiClient,
+    index_code: str = "IMOEX",
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[IndexValueOut]:
+    """Собрать ВСЕ значения индекса окна ``[date_from, date_to]`` пагинацией (limit ≤ 200).
+
+    Годовое окно индекса ≈ 250 торговых дней > 200, а limit>200 → HTTP 422. Окно задаётся
+    датами (не record-count): сервер фильтрует по окну, его ``total`` равен числу значений
+    окна. Без кэша: композирует кэшируемую ``fetch_index``.
+    """
+    return _collect_pages(
+        lambda offset: fetch_index(
+            _client,
+            index_code=index_code,
+            date_from=date_from,
+            date_to=date_to,
+            limit=_API_PAGE_LIMIT,
+            offset=offset,
+        )
+    )
 
 
 @st.cache_data(ttl=_CACHE_TTL_SECONDS, show_spinner=False)
@@ -215,6 +336,23 @@ def fetch_portfolio_summary(
 def fetch_backtest(_client: ApiClient, months_back: int = 12) -> BacktestResultOut:
     """Кэш-обёртка GET /portfolio/backtest."""
     return _client.get_backtest(months_back=months_back)
+
+
+@st.cache_data(ttl=_CACHE_TTL_SECONDS, show_spinner=False)
+def fetch_optimize(
+    _client: ApiClient,
+    period_days: int = 365,
+    strategy: OptimizationStrategy = OptimizationStrategy.MAX_SHARPE,
+) -> OptimizeResult:
+    """Кэш-обёртка POST /portfolio/optimize (дорогой солвер Марковица, §8).
+
+    Ключ кэша — примитивные нормализованные параметры (``period_days`` / ``strategy``), а не
+    сам ``OptimizeRequest``: pydantic-модель не хэшируема для ``st.cache_data`` без
+    ``hash_funcs``. Запрос собирается внутри из этих примитивов (текущие позиции владельца,
+    ``tickers=None``) — повторный rerun отдаёт кэш, а не пересчитывает солвер заново.
+    """
+    request = OptimizeRequest(period_days=period_days, strategy=strategy)
+    return _client.optimize(request.model_dump(mode="json"))
 
 
 def fetch_news_corpus(

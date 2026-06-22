@@ -28,6 +28,7 @@ from dashboard.pages.overview import (
     _mover_badge,
     _mover_caption,
     _mover_direction,
+    _period_bounds,
 )
 from stocklens_core.enums import CollectorRunStatus, Currency
 
@@ -94,6 +95,18 @@ def test_index_points_orders_by_trade_date_ascending() -> None:
 
 def test_index_points_empty_returns_empty() -> None:
     assert _index_points([]) == []
+
+
+def test_period_bounds_returns_iso_window_from_reference() -> None:
+    date_from, date_to = _period_bounds(period_days=365, reference=date(2026, 6, 22))
+    assert date_to == "2026-06-22"
+    assert date_from == "2025-06-22"
+
+
+def test_period_bounds_one_month_window() -> None:
+    date_from, date_to = _period_bounds(period_days=30, reference=date(2026, 6, 22))
+    assert date_from == "2026-05-23"
+    assert date_to == "2026-06-22"
 
 
 def test_latest_two_closes_returns_last_then_previous() -> None:

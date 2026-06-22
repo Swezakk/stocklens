@@ -8,6 +8,8 @@ config.toml chart*-ключи зеркалят те же хексы для на�
 import tomllib
 from pathlib import Path
 
+from stocklens_core.enums import CollectorRunStatus
+
 from dashboard import theme
 
 
@@ -43,3 +45,24 @@ def test_surface_tokens_match_config() -> None:
     assert table["linkColor"] == theme.LINK
     assert table["borderColor"] == theme.BORDER
     assert table["textColor"] == theme.TEXT
+
+
+def test_sidebar_surface_tokens_match_config() -> None:
+    """Блок [theme.sidebar] зеркалит те же surface-токены theme.py (без скрытого дрейфа)."""
+    table = _load_theme_table()
+    sidebar = table["sidebar"]
+    assert isinstance(sidebar, dict)
+    assert sidebar["backgroundColor"] == theme.SECONDARY_BACKGROUND
+    assert sidebar["secondaryBackgroundColor"] == theme.BACKGROUND
+
+
+def test_status_badge_colors_cover_every_status() -> None:
+    """Карта цветов бейджа покрывает все статусы и несёт только именованные цвета st.badge."""
+    assert set(theme.STATUS_BADGE_COLORS) == set(CollectorRunStatus)
+    assert set(theme.STATUS_BADGE_COLORS.values()) <= {"green", "orange", "red"}
+
+
+def test_status_badge_icons_cover_every_status() -> None:
+    """Карта иконок бейджа покрывает все статусы и несёт ``:material/``-токены (a11y, §12)."""
+    assert set(theme.STATUS_BADGE_ICONS) == set(CollectorRunStatus)
+    assert all(icon.startswith(":material/") for icon in theme.STATUS_BADGE_ICONS.values())

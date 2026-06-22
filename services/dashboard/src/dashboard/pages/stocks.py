@@ -23,19 +23,14 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 from dashboard.api_client.client import ApiClient
-from dashboard.api_client.dto import CandleOut, DividendOut, SecurityPage
+from dashboard.api_client.dto import CandleOut, DividendOut, SecurityOut
 from dashboard.api_client.errors import ApiError
 from dashboard.api_client.fetch import (
-    fetch_candles,
-    fetch_dividends,
-    fetch_securities,
-    get_client,
+    fetch_all_securities,
+    fetch_candles_window,
+    fetch_dividends_all,
 )
-from dashboard.auth import (
-    build_on_unauthorized,
-    build_token_provider,
-    get_token_manager,
-)
+from dashboard.auth import get_api_client
 from dashboard.components import filters
 from dashboard.components.charts import (
     build_candlestick_chart,
@@ -53,7 +48,7 @@ _TAB_SINGLE = "Свечи"
 _TAB_COMPARE = "Сравнение"
 
 #: Метка KPI последней цены закрытия.
-_LATEST_CLOSE_LABEL = "Последний close"
+_LATEST_CLOSE_LABEL = "Цена закрытия"
 
 #: Подписи виджетов и секций (RU-копи).
 _COMPARE_TICKERS_LABEL = "Бумаги для сравнения"
@@ -73,12 +68,6 @@ _MIN_COMPARE_TICKERS = 2
 #: Минимум свечей для расчёта дельты дня (текущий close против предыдущего).
 _MIN_CANDLES_FOR_DELTA = 2
 
-#: Предел свечей за период: годовой максимум периодов (365) + запас на сессии выходного дня.
-_CANDLE_LIMIT = 400
-
-#: Потолок выборки бумаг: список MOEX-бумаг дашборда заведомо умещается на одной странице.
-_SECURITIES_LIMIT = 500
-
 #: Часовой пояс отсчёта периода: окно свечей считается по московскому календарю (CLAUDE.md).
 _MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
@@ -94,13 +83,13 @@ def _period_bounds(period_days: int, reference: date) -> tuple[str, str]:
     return date_from.isoformat(), reference.isoformat()
 
 
-def _ticker_options(page: SecurityPage) -> list[str]:
+def _ticker_options(securities: Sequence[SecurityOut]) -> list[str]:
     """Список тикеров для селектора, упорядоченный по алфавиту (детерминизм UI).
 
-    Берёт тикеры из страницы бумаг как есть (фильтр активности — на стороне fetch);
+    Берёт тикеры из собранного списка бумаг как есть (фильтр активности — на стороне fetch);
     сортировка делает порядок опций стабильным независимо от порядка ответа API.
     """
-    return sorted(security.ticker for security in page.items)
+    return sorted(security.ticker for security in securities)
 
 
 def _sort_candles_ascending(candles: Sequence[CandleOut]) -> list[CandleOut]:
@@ -141,23 +130,10 @@ def _dividends_in_window(
     return [dividend for dividend in dividends if window_from <= dividend.ex_date <= window_to]
 
 
-def _resolve_client() -> ApiClient:
-    """Получить singleton ApiClient, привязанный к auth-менеджеру сессии (DESIGN §6, §7).
-
-    Импурно (session_state + cache_resource), поэтому живёт в orchestration, а не в
-    чистых хелперах. Провайдер токена и хук 401 — из auth.py.
-    """
-    manager = get_token_manager()
-    return get_client(
-        build_token_provider(manager),
-        build_on_unauthorized(manager),
-    )
-
-
 def render() -> None:
     """Отрисовать страницу «Акции»: фильтры → свечи/объём/дивиденды + режим сравнения."""
     st.title(_PAGE_TITLE)
-    client = _resolve_client()
+    client = get_api_client()
 
     securities = _load_securities(client)
     if securities is None:
@@ -183,10 +159,10 @@ def render() -> None:
         _render_comparison(client, tickers, date_from, date_to)
 
 
-def _load_securities(client: ApiClient) -> SecurityPage | None:
+def _load_securities(client: ApiClient) -> list[SecurityOut] | None:
     """Загрузить список бумаг с обработкой трёх веток; None при ошибке (сообщение показано)."""
     try:
-        return fetch_securities(client, is_active=True, limit=_SECURITIES_LIMIT)
+        return fetch_all_securities(client, is_active=True)
     except ApiError as exc:
         render_error(exc.user_message)
         return None
@@ -196,25 +172,23 @@ def _render_single(client: ApiClient, ticker: str, date_from: str, date_to: str)
     """Отрисовать свечной график с объёмом, дивидендными отсечками и KPI последнего close."""
     st.subheader(_PRICE_SECTION)
     try:
-        candle_page = fetch_candles(
+        candles = fetch_candles_window(
             client,
             ticker=ticker,
             date_from=date_from,
             date_to=date_to,
-            limit=_CANDLE_LIMIT,
         )
-        dividend_page = fetch_dividends(client, ticker=ticker, limit=_CANDLE_LIMIT)
+        dividends_all = fetch_dividends_all(client, ticker=ticker)
     except ApiError as exc:
         render_error(exc.user_message)
         return
 
-    candles = candle_page.items
     if not candles:
         render_empty(_EMPTY_CANDLES.format(ticker=ticker))
         return
 
     _render_latest_close(candles)
-    dividends = _dividends_in_window(dividend_page.items, date_from, date_to)
+    dividends = _dividends_in_window(dividends_all, date_from, date_to)
     fig = build_candlestick_chart(_sort_candles_ascending(candles), dividends)
     render_chart(fig)
 
@@ -271,14 +245,13 @@ def _load_comparison_series(
     series_by_ticker: dict[str, list[CandleOut]] = {}
     try:
         for ticker in selected:
-            page = fetch_candles(
+            candles = fetch_candles_window(
                 client,
                 ticker=ticker,
                 date_from=date_from,
                 date_to=date_to,
-                limit=_CANDLE_LIMIT,
             )
-            series_by_ticker[ticker] = _sort_candles_ascending(page.items)
+            series_by_ticker[ticker] = _sort_candles_ascending(candles)
     except ApiError as exc:
         render_error(exc.user_message)
         return None

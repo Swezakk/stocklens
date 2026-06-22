@@ -12,6 +12,7 @@ render() — тонкая оркестрация: всё нетривиальн�
 ошибка сервера / сеть недоступна) — пустых экранов нет.
 """
 
+import html
 from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -19,20 +20,16 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 from stocklens_core.enums import SentimentLabel
 
+from dashboard import theme
 from dashboard.api_client.client import ApiClient
 from dashboard.api_client.dto import NewsOut
 from dashboard.api_client.errors import ApiError
 from dashboard.api_client.fetch import (
+    fetch_all_securities,
     fetch_news,
     fetch_news_corpus,
-    fetch_securities,
-    get_client,
 )
-from dashboard.auth import (
-    build_on_unauthorized,
-    build_token_provider,
-    get_token_manager,
-)
+from dashboard.auth import get_api_client
 from dashboard.components import filters
 from dashboard.components.charts import (
     build_sentiment_trend_chart,
@@ -64,6 +61,7 @@ _TICKER_KEY = "news_ticker"
 _SENTIMENT_KEY = "news_sentiment"
 _DATE_RANGE_KEY = "news_date_range"
 _FEED_OFFSET_KEY = "news_feed_offset"
+_FEED_FILTER_KEY = "news_feed_filter_signature"
 
 #: Заголовки секций (RU-копи).
 _SECTION_FEED = "Лента"
@@ -89,7 +87,7 @@ def render() -> None:
     """
     st.title(_PAGE_TITLE)
 
-    client = _build_client()
+    client = get_api_client()
 
     tickers = _load_tickers(client)
     selected_ticker, selected_sentiments, date_range = _render_filters(tickers)
@@ -99,23 +97,14 @@ def render() -> None:
     _render_aggregates(client, selected_ticker, selected_sentiments, date_from, date_to)
 
 
-def _build_client() -> ApiClient:
-    """Собрать ApiClient, привязанный к токен-менеджеру сессии (DESIGN §6, §7)."""
-    manager = get_token_manager()
-    return get_client(
-        build_token_provider(manager),
-        build_on_unauthorized(manager),
-    )
-
-
 def _load_tickers(client: ApiClient) -> list[str]:
     """Загрузить список тикеров для фильтра; сетевой сбой → фидбэк, пустой список."""
     try:
-        page = fetch_securities(client, is_active=True, limit=500)
+        securities = fetch_all_securities(client, is_active=True)
     except ApiError as exc:
         render_error(exc.user_message)
         return []
-    return [security.ticker for security in page.items]
+    return [security.ticker for security in securities]
 
 
 def _render_filters(
@@ -157,8 +146,14 @@ def _render_feed(
     Серверный фильтр тональности — одиночный (контракт API), поэтому при выборе двух+
     меток сервер не фильтруется (`_resolve_sentiment_filter` вернёт None), а сужение
     идёт чистым `_filter_by_sentiments` над уже скоренными статьями (presentation, §3).
+
+    Offset сбрасывается в 0 при смене любого фильтра (тикер/тональность/период), иначе
+    переход на узкий фильтр со старым offset отдал бы пустую страницу без выхода назад.
+    Пагинация рисуется ВСЕГДА (даже над пустой страницей), чтобы offset>0 можно было
+    откатить кнопкой «Назад» — пустой результат не должен «запирать» пользователя.
     """
     st.subheader(_SECTION_FEED)
+    _reset_feed_offset_on_filter_change(ticker, sentiments, date_from, date_to)
     offset = _feed_offset()
     server_sentiment = _resolve_sentiment_filter(sentiments)
     try:
@@ -178,20 +173,60 @@ def _render_feed(
     articles = _filter_by_sentiments(page.items, sentiments)
     if not articles:
         render_empty(_EMPTY_FEED)
-        return
+    else:
+        for article in articles:
+            st.markdown(_news_row_markdown(article), unsafe_allow_html=True)
+            st.divider()
 
-    for article in articles:
-        st.markdown(_news_row_markdown(article), unsafe_allow_html=True)
-        st.divider()
-
-    _render_feed_pagination(offset, page.total)
+    _render_feed_pagination(offset, len(articles), page.total)
 
 
-def _render_feed_pagination(offset: int, total: int) -> None:
-    """Кнопки пагинации ленты + подпись «N–M из total» (видимый объём)."""
+def _filter_signature(
+    ticker: str | None,
+    sentiments: Sequence[SentimentLabel],
+    date_from: date | None,
+    date_to: date | None,
+) -> tuple[str | None, tuple[str, ...], str | None, str | None]:
+    """Хэшируемая подпись активных фильтров ленты для детекта их изменения между rerun."""
+    labels = tuple(sorted(label.value for label in sentiments))
+    return ticker, labels, _iso_or_none(date_from), _iso_or_none(date_to)
+
+
+def _reset_feed_offset_on_filter_change(
+    ticker: str | None,
+    sentiments: Sequence[SentimentLabel],
+    date_from: date | None,
+    date_to: date | None,
+) -> None:
+    """Сбросить offset ленты в 0, если набор фильтров изменился с прошлого rerun.
+
+    Подпись фильтров хранится в session_state; при расхождении offset обнуляется, чтобы
+    смена фильтра всегда показывала первую страницу нового результата (а не пустую N-ю).
+    """
+    signature = _filter_signature(ticker, sentiments, date_from, date_to)
+    if st.session_state.get(_FEED_FILTER_KEY) != signature:
+        st.session_state[_FEED_FILTER_KEY] = signature
+        st.session_state[_FEED_OFFSET_KEY] = 0
+
+
+def _feed_caption(offset: int, shown: int, total: int) -> str:
+    """Честная подпись объёма ленты «Показаны N–M из total» (DESIGN §9: видимый объём).
+
+    ``shown`` — число фактически отрисованных строк (после клиентского сужения по 2+ меткам
+    тональности), ``total`` — размер серверной выборки. Конец диапазона считается от ``shown``,
+    а не от размера страницы: при клиентском сужении видно меньше 50 строк, и подпись это
+    отражает, не завышая до полного ``page.total``. Пустая страница → «Показано 0 из total».
+    """
+    if shown == 0:
+        return f"Показано 0 из {total}"
     shown_from = offset + 1
-    shown_to = min(offset + _FEED_PAGE_SIZE, total)
-    st.caption(f"Показаны {shown_from}–{shown_to} из {total}")
+    shown_to = offset + shown
+    return f"Показаны {shown_from}–{shown_to} из {total}"
+
+
+def _render_feed_pagination(offset: int, shown: int, total: int) -> None:
+    """Кнопки пагинации ленты + честная подпись объёма (видимое число строк, §9)."""
+    st.caption(_feed_caption(offset, shown, total))
 
     prev_col, next_col = st.columns(2)
     with prev_col:
@@ -329,16 +364,20 @@ def _news_row_markdown(article: NewsOut) -> str:
     """Собрать markdown-строку ленты: заголовок-ссылка, источник, время МСК, чип, тикеры.
 
     Заголовок — ссылка на url статьи; тональность — SentimentChip (текст+цвет, a11y);
-    тикеры — инлайн-чипы. HTML чипа экранируется внутри render_sentiment_chip; источник и
-    тикеры — доверенные значения контракта API.
+    тикеры — инлайн-чипы. Строка рендерится через ``unsafe_allow_html=True``, а title /
+    url / source приходят из внешних RSS-лент (НЕ доверенный контракт API), поэтому
+    экранируются ``html.escape`` против stored-HTML-инъекции — как в kpi.py и sentiment.py.
+    Тикеры — контролируемый MOEX-словарь, оборачиваются в inline-code и не экранируются.
     """
     chip = render_sentiment_chip(article.sentiment.label) if article.sentiment else ""
     tickers = " ".join(f"`{ticker}`" for ticker in article.tickers)
     published = _format_published_at(article.published_at)
-    meta = f"{article.source} · {published}"
+    title = html.escape(article.title)
+    url = html.escape(article.url, quote=True)
+    meta = f"{html.escape(article.source)} · {published}"
     return (
-        f"**[{article.title}]({article.url})**  {chip}\n\n"
-        f'<span style="color:#9BA1A8">{meta}</span>  {tickers}'
+        f"**[{title}]({url})**  {chip}\n\n"
+        f'<span style="color:{theme.MUTED_TEXT}">{meta}</span>  {tickers}'
     )
 
 

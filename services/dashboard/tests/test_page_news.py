@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime
 from dashboard.api_client.dto import NewsOut, SentimentOut
 from dashboard.pages.news import (
     _corpus_caption,
+    _feed_caption,
     _filter_by_sentiments,
     _format_published_at,
     _iso_or_none,
@@ -154,6 +155,40 @@ def test_news_row_markdown_without_sentiment_omits_chip() -> None:
     markdown = _news_row_markdown(article)
 
     assert "sentiment-chip" not in markdown
+
+
+def test_news_row_markdown_escapes_untrusted_rss_html() -> None:
+    """RSS-поля (title/source/url) экранируются: stored-HTML-инъекция не доходит до DOM."""
+    article = _article(
+        title='<img src=x onerror="alert(1)">',
+        source="<script>steal()</script>",
+        url="https://example.com/a?x=1&y=2",
+        tickers=["SBER"],
+    )
+
+    markdown = _news_row_markdown(article)
+
+    assert "<img" not in markdown
+    assert "<script>" not in markdown
+    assert "onerror" in markdown  # текст остался, но как экранированная сущность
+    assert "&lt;img" in markdown
+    assert "&lt;script&gt;" in markdown
+    assert "&amp;y=2" in markdown
+
+
+def test_feed_caption_counts_displayed_rows_not_page_total() -> None:
+    """Конец диапазона считается от числа показанных строк, не от page.total (честность §9)."""
+    # На странице 50 серверных статей, после клиентского сужения видно 12.
+    assert _feed_caption(offset=0, shown=12, total=320) == "Показаны 1–12 из 320"
+
+
+def test_feed_caption_offset_shifts_displayed_range() -> None:
+    assert _feed_caption(offset=50, shown=50, total=320) == "Показаны 51–100 из 320"
+
+
+def test_feed_caption_empty_page_reports_zero() -> None:
+    """Пустая (после фильтра) страница — честный «0 из total», пагинация всё равно рисуется."""
+    assert _feed_caption(offset=100, shown=0, total=320) == "Показано 0 из 320"
 
 
 def test_corpus_caption_reports_real_sample_size_and_period() -> None:

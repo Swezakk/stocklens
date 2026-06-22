@@ -46,6 +46,7 @@ from dashboard.api_client.fetch import (
 from dashboard.auth import get_api_client
 from dashboard.components import charts, feedback
 from dashboard.components.kpi import delta_badge_from_values, render_delta_badge, stat_cell
+from dashboard.components.layout import card
 from dashboard.components.transforms import DELTA_GLYPHS, DeltaDirection
 
 #: Заголовок страницы (RU-копи — пользовательская строка).
@@ -263,9 +264,12 @@ def render() -> None:
     client = get_api_client()
 
     summary = _load_summary(client)
-    _render_positions_section(client, summary)
-    _render_equity_section(client)
-    _render_frontier_section(client)
+    with card("portfolio-positions"):
+        _render_positions_section(client, summary)
+    with card("portfolio-equity"):
+        _render_equity_section(client)
+    with card("portfolio-frontier"):
+        _render_frontier_section(client)
 
 
 def _load_summary(client: ApiClient) -> PortfolioSummaryOut | None:

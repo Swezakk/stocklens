@@ -37,6 +37,7 @@ from dashboard.components.charts import (
     render_chart,
 )
 from dashboard.components.feedback import render_empty, render_error
+from dashboard.components.layout import card
 from dashboard.components.sentiment import render_sentiment_chip
 from dashboard.components.transforms import group_sentiment_by_date, word_frequencies
 from dashboard.settings import get_settings
@@ -94,10 +95,12 @@ def render() -> None:
     client = get_api_client()
 
     tickers = _load_tickers(client)
+    # Фильтры — намеренно не в карточке: это тулбар над контентом, а не секция-панель.
     selected_ticker, selected_sentiments, date_range = _render_filters(tickers)
     date_from, date_to = _resolve_date_range(date_range)
 
-    _render_feed(client, selected_ticker, selected_sentiments, date_from, date_to)
+    with card("news-feed"):
+        _render_feed(client, selected_ticker, selected_sentiments, date_from, date_to)
     _render_aggregates(client, selected_ticker, selected_sentiments, date_from, date_to)
 
 
@@ -273,8 +276,10 @@ def _render_aggregates(
     articles = _filter_by_sentiments(corpus, sentiments)
     caption = _corpus_caption(total, len(articles), truncated, date_from, date_to)
 
-    _render_trend(articles, caption)
-    _render_word_frequencies(articles, caption)
+    with card("news-trend"):
+        _render_trend(articles, caption)
+    with card("news-words"):
+        _render_word_frequencies(articles, caption)
 
 
 def _render_trend(articles: list[NewsOut], caption: str) -> None:

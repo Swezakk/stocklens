@@ -39,6 +39,7 @@ from dashboard.components.charts import (
 )
 from dashboard.components.feedback import render_empty, render_error
 from dashboard.components.kpi import delta_badge_from_values, stat_cell
+from dashboard.components.layout import card
 
 #: Заголовок страницы (RU-копи — пользовательская строка).
 _PAGE_TITLE = "Акции"
@@ -153,9 +154,9 @@ def render() -> None:
     date_from, date_to = _period_bounds(period_days, datetime.now(tz=_MOSCOW_TZ).date())
 
     single_tab, compare_tab = st.tabs([_TAB_SINGLE, _TAB_COMPARE])
-    with single_tab:
+    with single_tab, card("stocks-single"):
         _render_single(client, ticker, date_from, date_to)
-    with compare_tab:
+    with compare_tab, card("stocks-compare"):
         _render_comparison(client, tickers, date_from, date_to)
 
 

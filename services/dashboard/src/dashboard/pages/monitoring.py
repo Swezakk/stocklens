@@ -32,6 +32,7 @@ from dashboard.api_client.errors import ApiError
 from dashboard.api_client.fetch import fetch_collector_runs
 from dashboard.auth import get_api_client
 from dashboard.components.feedback import render_empty, render_error
+from dashboard.components.layout import card
 from dashboard.theme import STATUS_BADGE_COLORS, STATUS_BADGE_ICONS, BadgeColor
 
 #: Заголовок страницы (RU-копи — пользовательская строка).
@@ -191,7 +192,7 @@ def _render_status_tiles(runs: list[CollectorRunOut]) -> None:
     columns = st.columns(_TILE_COLUMNS)
     for index, run in enumerate(latest):
         visual = _status_visual(run.status)
-        with columns[index % _TILE_COLUMNS], st.container(border=True):
+        with columns[index % _TILE_COLUMNS], card(f"mon-tile-{run.source}"):
             st.markdown(f"**{run.source}**")
             st.badge(visual.label, icon=visual.icon, color=visual.accent)
             st.caption(f"Обновлено: {_format_msk(run.started_at)}")
@@ -240,6 +241,9 @@ def render() -> None:
         render_empty(_EMPTY_RUNS_MESSAGE)
         return
 
+    # Источники не оборачиваем в карточку: сами плитки — уже карточки (вложенность запрещена).
     _render_status_tiles(runs)
-    _render_journal(runs)
-    _render_recent_errors(runs)
+    with card("mon-journal"):
+        _render_journal(runs)
+    with card("mon-errors"):
+        _render_recent_errors(runs)

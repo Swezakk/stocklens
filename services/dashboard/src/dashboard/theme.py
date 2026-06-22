@@ -139,6 +139,10 @@ def apply_dark_template(fig: go.Figure) -> go.Figure:
         "zerolinecolor": BORDER,
         "linecolor": BORDER,
         "tickfont": {"family": _FONT_FAMILY_MONO, "color": MUTED_TEXT},
+        # automargin расширяет поле под подписи тиков И заголовок оси — чинит обрезку
+        # чисел оси Y и коллизию заголовка оси с тиками без ручного подбора margin.
+        "automargin": True,
+        "title_standoff": 8,
     }
     fig.update_xaxes(**axis_style)
     fig.update_yaxes(**axis_style)

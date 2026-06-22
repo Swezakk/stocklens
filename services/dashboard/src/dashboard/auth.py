@@ -57,6 +57,11 @@ _GATE_SUBMIT_LABEL = "Войти"
 _GATE_EMPTY_PASSWORD = "Введите пароль."
 _GATE_FORM_KEY = "auth_gate"
 
+#: На экране входа сайдбар скрыт: Streamlit авто-дискаверит каталог pages/ и до st.navigation
+#: (за st.stop гейта) показал бы в сайдбаре список файлов-страниц. Прячем сайдбар только на
+#: гейте — после входа require_auth выходит раньше, сайдбар с нашей навигацией возвращается.
+_HIDE_SIDEBAR_STYLE = "<style>[data-testid='stSidebar']{display:none}</style>"
+
 
 class MutableState(Protocol):
     """Минимальный протокол изменяемого хранилища состояния (под ``st.session_state``).
@@ -235,15 +240,23 @@ def require_auth() -> None:
         return
 
     manager = get_token_manager()
-    st.title(_GATE_TITLE)
-    st.caption(_GATE_PROMPT)
+    st.markdown(_HIDE_SIDEBAR_STYLE, unsafe_allow_html=True)
 
-    with st.form(_GATE_FORM_KEY):
-        password = st.text_input(_GATE_PASSWORD_LABEL, type="password")
-        submitted = st.form_submit_button(_GATE_SUBMIT_LABEL)
-
-    if submitted:
-        _attempt_login(manager, password)
+    # Карточка логина по центру: контент в средней колонке с верхним отступом — форма не
+    # «висит» растянутой во всю ширину вверху-слева (DESIGN §7, отдельный экран входа).
+    st.write("")
+    st.write("")
+    _, center, _ = st.columns([1, 1, 1])
+    with center:
+        st.title(_GATE_TITLE)
+        st.caption(_GATE_PROMPT)
+        with st.form(_GATE_FORM_KEY):
+            password = st.text_input(_GATE_PASSWORD_LABEL, type="password")
+            submitted = st.form_submit_button(
+                _GATE_SUBMIT_LABEL, type="primary", use_container_width=True
+            )
+        if submitted:
+            _attempt_login(manager, password)
 
     st.stop()
 

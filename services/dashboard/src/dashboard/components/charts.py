@@ -335,10 +335,18 @@ def build_word_frequency_chart(frequencies: Sequence[tuple[str, int]]) -> go.Fig
     return theme.apply_dark_template(fig)
 
 
-def render_chart(fig: go.Figure) -> None:
+#: Высота графика по умолчанию: компактнее дефолтных Plotly 450px — меньше вертикальной
+#: пустоты под графиком на странице (DESIGN §4). Спарклайны/иные фиксируют свою высоту сами.
+_DEFAULT_CHART_HEIGHT = 340
+
+
+def render_chart(fig: go.Figure, *, height: int = _DEFAULT_CHART_HEIGHT) -> None:
     """Отрендерить фигуру с нашим шаблоном (DESIGN §2.3): theme=None, контейнерная ширина.
 
     theme=None отключает палитру Streamlit — цвета берутся из apply_dark_template/токенов,
-    без двойного применения темы.
+    без двойного применения темы. Высота берётся из ``height`` только если билдер не задал
+    свою (спарклайн KPI фиксирует 48px) — иначе явная высота сохраняется.
     """
+    if fig.layout.height is None:
+        fig.update_layout(height=height)
     st.plotly_chart(fig, theme=None, use_container_width=True)

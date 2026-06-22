@@ -69,7 +69,8 @@ pretty = true
 # Нетипизированные сторонние границы (нет py.typed/стабов): testcontainers —
 # интеграционные тесты; apscheduler 3.x — планировщик; feedparser (стабы
 # types-feedparser неполные), onnxruntime/tokenizers/optimum — sentiment-инференс;
-# pandas (требует pandas-stubs), pypfopt — портфельная оптимизация.
+# pandas (требует pandas-stubs), pypfopt — портфельная оптимизация;
+# plotly — графики дашборда (не поставляет py.typed/стабы).
 module = [
     "testcontainers.*",
     "apscheduler.*",
@@ -85,6 +86,8 @@ module = [
     "pandas.*",
     "pypfopt",
     "pypfopt.*",
+    "plotly",
+    "plotly.*",
 ]
 ignore_missing_imports = true
 

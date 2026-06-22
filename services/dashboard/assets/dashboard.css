@@ -1,0 +1,105 @@
+/*
+ * StockLens dashboard — тонкий CSS-слой (DESIGN.md §5).
+ *
+ * Покрывает только то, чего нет в токенах темы config.toml: компактные
+ * KPI-ячейки и чипы, табличные цифры (tnum), ужатие верхнего паддинга,
+ * плотность строк таблиц.
+ *
+ * Селекторы — по стабильным [data-testid] и собственным классам компонентов;
+ * хрупкие хеш-классы не используются. Семантические цвета (up/down/flat,
+ * тональность) — литеральные хексы той же палитры «Графит+тил»: это биржевая
+ * конвенция, не настраиваемая темой, а mutedText не имеет нативного st-токена.
+ */
+
+/* --- Ужатие верхнего паддинга основного блока (DESIGN §4) --------------- */
+/* Данные начинаются ближе к верху, не «висят» внизу пустого экрана. */
+[data-testid="stMainBlockContainer"] {
+    padding-top: 1.5rem;
+}
+
+/* --- StatCell: компактная KPI-ячейка (DESIGN §5), не hero-metric -------- */
+.statcell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.5rem 0;
+}
+
+.statcell__label {
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: #9BA1A8;
+    text-transform: none;
+}
+
+.statcell__value {
+    font-family: "Fira Code", monospace;
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1.1;
+    /* Табличные цифры: KPI и колонки чисел выравниваются по разрядам. */
+    font-feature-settings: "tnum" 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--st-text-color, #E6E8EB);
+}
+
+/* --- DeltaBadge: три канала (цвет + глиф + знак), a11y (DESIGN §2.2) ----- */
+.delta-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    font-family: "Fira Code", monospace;
+    font-size: 13px;
+    font-weight: 500;
+    font-feature-settings: "tnum" 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.delta-badge--up {
+    color: #34D399;
+}
+
+.delta-badge--down {
+    color: #F87171;
+}
+
+.delta-badge--flat {
+    color: #8B93A0;
+}
+
+/* --- SentimentChip: пилюля метки тональности (DESIGN §5) ---------------- */
+.sentiment-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.1rem 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid #2A2D31;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    line-height: 1.4;
+}
+
+.sentiment-chip--positive {
+    color: #34D399;
+}
+
+.sentiment-chip--neutral {
+    color: #8B93A0;
+}
+
+.sentiment-chip--negative {
+    color: #F87171;
+}
+
+/* --- Плотность таблиц: табличные цифры + более плотные строки (DESIGN §5) */
+[data-testid="stDataFrame"] {
+    font-feature-settings: "tnum" 1;
+    font-variant-numeric: tabular-nums;
+}
+
+[data-testid="stMetricValue"] {
+    font-feature-settings: "tnum" 1;
+    font-variant-numeric: tabular-nums;
+}

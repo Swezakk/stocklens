@@ -1,0 +1,21 @@
+[theme]
+base = "dark"
+backgroundColor = "#131416"
+secondaryBackgroundColor = "#1B1D20"
+textColor = "#E6E8EB"
+primaryColor = "#2DD4BF"
+linkColor = "#5EEAD4"
+borderColor = "#2A2D31"
+showWidgetBorder = true
+baseRadius = "0.5rem"
+baseFontSize = 14
+font = "Fira Sans:https://fonts.googleapis.com/css2?family=Fira+Sans:wght@300;400;500;600;700&display=swap"
+headingFont = "Fira Sans:https://fonts.googleapis.com/css2?family=Fira+Sans:wght@300;400;500;600;700&display=swap"
+codeFont = "'Fira Code':https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap"
+chartCategoricalColors = ["#2DD4BF","#60A5FA","#A78BFA","#FBBF24","#F472B6","#22D3EE","#FB923C","#A3E635"]
+chartSequentialColors  = ["#042F2E","#064E47","#0A6E63","#0D8B7E","#11A697","#16C0AE","#2DD4BF","#5EEAD4","#99F6E4","#CCFBF1"]
+chartDivergingColors   = ["#7F1D1D","#B91C1C","#DC2626","#EF4444","#FCA5A5","#A7F3D0","#4ADE80","#22C55E","#16A34A","#166534"]
+
+[theme.sidebar]
+backgroundColor = "#1B1D20"
+secondaryBackgroundColor = "#131416"

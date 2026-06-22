@@ -116,6 +116,32 @@ services:
     mem_limit: 1g
     restart: unless-stopped
 
+  dashboard:
+    image: ghcr.io/swezakk/stocklens-dashboard:${IMAGE_TAG:-latest}
+    environment:
+      # Дашборд ходит только в API по HTTP (§3); пароль владельца вводится на гейте
+      # (= логин в API), секретов в env дашборда нет — только адрес API и имя пользователя.
+      API_URL: ${API_URL:-http://api:8000}
+      AUTH_OWNER_USERNAME: ${AUTH_OWNER_USERNAME:-admin}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # Только внутренний порт: наружу дашборд выводит Traefik (Dokploy) на домен.
+    expose:
+      - "8501"
+    mem_limit: 512m
+    restart: unless-stopped
+
 volumes:
   # Внешний том создаётся вручную (docker volume create stocklens_pgdata) до первого деплоя.
   # external: true гарантирует, что Dokploy/`docker compose down -v` его не удалит.

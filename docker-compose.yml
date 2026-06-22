@@ -106,5 +106,31 @@ services:
       start_period: 120s
     restart: unless-stopped
 
+  dashboard:
+    build:
+      context: .
+      dockerfile: services/dashboard/Dockerfile
+    environment:
+      # Дашборд ходит только в API по HTTP (§3); пароль владельца вводится на гейте
+      # (= логин в API), секретов в env дашборда нет — только адрес API и имя пользователя.
+      API_URL: ${API_URL:-http://api:8000}
+      AUTH_OWNER_USERNAME: ${AUTH_OWNER_USERNAME:-admin}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    ports:
+      - "127.0.0.1:8501:8501"
+    restart: unless-stopped
+
 volumes:
   pgdata:

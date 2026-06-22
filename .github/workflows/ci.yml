@@ -115,6 +115,30 @@ jobs:
           uv run --project services/api
           mypy services/api/src services/api/tests
 
+  dashboard:
+    name: dashboard (pytest + mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: uv sync
+        run: uv sync --project services/dashboard
+
+      - name: pytest (coverage >= 50%)
+        run: >
+          uv run --project services/dashboard
+          pytest services/dashboard/tests
+          --cov=dashboard --cov-fail-under=50
+
+      - name: mypy strict
+        run: >
+          uv run --project services/dashboard
+          mypy services/dashboard/src services/dashboard/tests
+
   build:
     name: docker compose build
     runs-on: ubuntu-latest
@@ -137,12 +161,14 @@ jobs:
           docker compose run --rm --no-deps api uvicorn --version
           docker compose run --rm --no-deps api python -c "from api.main import create_app; create_app()"
           docker compose run --rm --no-deps ingestor python -c "import ingestor; import ingestor.sentiment"
+          docker compose run --rm --no-deps dashboard streamlit --version
+          docker compose run --rm --no-deps dashboard python -c "import dashboard.settings, dashboard.theme; from dashboard.api_client import fetch"
 
   publish:
     name: publish images (GHCR)
     runs-on: ubuntu-latest
     # Публикуем только зелёный main: образы тянет прод-сервер (Dokploy), сборка — здесь.
-    needs: [lint, core, migrations, ingestor, api]
+    needs: [lint, core, migrations, ingestor, api, dashboard]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
@@ -154,6 +180,8 @@ jobs:
             dockerfile: services/api/Dockerfile
           - image: ghcr.io/swezakk/stocklens-ingestor
             dockerfile: services/ingestor/Dockerfile
+          - image: ghcr.io/swezakk/stocklens-dashboard
+            dockerfile: services/dashboard/Dockerfile
     steps:
       - uses: actions/checkout@v6
 

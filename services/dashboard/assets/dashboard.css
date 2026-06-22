@@ -37,38 +37,6 @@
     margin-right: auto;
 }
 
-/* --- Сайдбар: бренд-блок под навигацией (DESIGN §4) --------------------- */
-/* Сайдбар был почти пустым (только 5 пунктов навигации сверху). Бренд-идентичность
-   под навигацией с разделителем заполняет пустую зону и даёт сервису лицо. */
-.sl-sidebar-brand {
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-    margin-top: 1.5rem;
-    padding-top: 1.25rem;
-    border-top: 1px solid #23252A;
-}
-
-.sl-sidebar-brand__mark {
-    width: 26px;
-    height: 3px;
-    background: #2DD4BF;
-    border-radius: 2px;
-    margin-bottom: 0.55rem;
-}
-
-.sl-sidebar-brand__name {
-    font-size: 18px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    color: #F7F8F8;
-}
-
-.sl-sidebar-brand__tag {
-    font-size: 12px;
-    color: #62666D;
-}
-
 /* --- Сайдбар: рыночная сводка (контекст на каждой странице, DESIGN §4) -- */
 /* Постоянный рыночный пульс (IMOEX + дельта, ставка ЦБ) оправдывает место сайдбара. */
 .sl-market-context {

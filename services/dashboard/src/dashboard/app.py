@@ -26,30 +26,17 @@ _PAGE_TITLE = "StockLens"
 #: Путь к тонкому CSS-слою: parents[2] = services/dashboard (app.py лежит в src/dashboard).
 _CSS_PATH = Path(__file__).resolve().parents[2] / "assets" / "dashboard.css"
 
+#: SVG-вордмарк бренда (имя StockLens + тэглайн) для st.logo — рядом с CSS в assets/.
+_LOGO_PATH = Path(__file__).resolve().parents[2] / "assets" / "logo.svg"
+
 #: Название единственной секции навигации (RU-копи).
 _NAV_SECTION = "Разделы"
-
-#: Бренд-блок сайдбара: идентичность сервиса под навигацией, заполняет пустую нижнюю
-#: часть сайдбара (DESIGN §4). RU-копи — пользовательские строки; HTML — доверенная разметка.
-_SIDEBAR_BRAND_HTML = (
-    '<div class="sl-sidebar-brand">'
-    '<span class="sl-sidebar-brand__mark"></span>'
-    '<span class="sl-sidebar-brand__name">StockLens</span>'
-    '<span class="sl-sidebar-brand__tag">Аналитика рынка MOEX</span>'
-    "</div>"
-)
 
 
 def _inject_css() -> None:
     """Подключить тонкий CSS-слой дашборда один раз (DESIGN §5)."""
     css = _CSS_PATH.read_text(encoding="utf-8")
     st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
-
-
-def _render_sidebar_brand() -> None:
-    """Бренд-блок в сайдбаре под навигацией: идентичность сервиса + заполнение пустоты (§4)."""
-    with st.sidebar:
-        st.markdown(_SIDEBAR_BRAND_HTML, unsafe_allow_html=True)
 
 
 def _build_navigation() -> StreamlitPage:
@@ -88,13 +75,13 @@ def _build_navigation() -> StreamlitPage:
 
 
 def main() -> None:
-    """Запустить дашборд: конфиг страницы → CSS → гейт → навигация (DESIGN §4, §7)."""
+    """Запустить дашборд: конфиг страницы → CSS → гейт → лого → навигация (DESIGN §4, §7)."""
     st.set_page_config(layout="wide", page_title=_PAGE_TITLE)
     _inject_css()
     require_auth()
+    st.logo(str(_LOGO_PATH), size="large")
     navigation = _build_navigation()
     render_market_context(get_api_client())
-    _render_sidebar_brand()
     navigation.run()
 
 

@@ -11,7 +11,8 @@ render_chart. Семантика цвета: candlestick up/down и дивиде
 мульти-серии — categorical-палитра; частотные слова — монохром-тил.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from datetime import date
 
 import plotly.graph_objects as go
 import streamlit as st
@@ -22,6 +23,13 @@ from dashboard.components.transforms import DeltaDirection, SentimentDayPoint
 
 #: Высота субплота объёма относительно цены (candlestick доминирует, объём — подложка).
 _VOLUME_ROW_HEIGHT = 0.22
+
+#: База нормировки мульти-серий сравнения: первая точка каждой серии = 100 (rebase-to-100).
+_REBASE_BASE = 100.0
+
+#: Поля компактного спарклайна KPI: без осей и легенды — только форма линии (DESIGN §10).
+_SPARKLINE_MARGIN = {"l": 0, "r": 0, "t": 0, "b": 0}
+_SPARKLINE_HEIGHT = 48
 
 #: Цвета точки динамики тона по знаку среднего балла (diverging-логика, DESIGN §5).
 _SENTIMENT_TREND_COLORS: dict[DeltaDirection, str] = {
@@ -103,6 +111,90 @@ def _add_dividend_markers(fig: go.Figure, dividends: Sequence[DividendOut]) -> N
             font={"color": theme.WARNING, "size": 11},
             yshift=8,
         )
+
+
+def build_index_line_chart(
+    points: Sequence[tuple[date, float]],
+    *,
+    sparkline: bool = False,
+) -> go.Figure:
+    """Одиночная линия значения индекса/курса/ставки за период (DESIGN §5, §10).
+
+    DTO-агностичен (как build_portfolio_vs_imoex_chart): принимает `(дата, значение)`-пары,
+    поэтому страница «Обзор» рисует им и IMOEX (trade_date/close), и спарклайны USD/EUR/CNY
+    и ключевой ставки (rate_date/rate) — каждый со своим источником, без правки charts.py.
+
+    Полный режим — акцент-тил линия с сеткой и подписями осей (низ страницы «Обзор»).
+    Режим `sparkline=True` — компактная KPI-форма: оси/легенда/сетка скрыты, остаётся
+    только силуэт линии, чтобы влезть в ячейку StatCell без визуального шума.
+    """
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=[point_date for point_date, _ in points],
+            y=[value for _, value in points],
+            name="Индекс",
+            mode="lines",
+            line={"color": theme.ACCENT, "width": 2},
+        )
+    )
+    fig = theme.apply_dark_template(fig)
+    if sparkline:
+        _strip_to_sparkline(fig)
+    return fig
+
+
+def _strip_to_sparkline(fig: go.Figure) -> None:
+    """Свести фигуру к компактному спарклайну: спрятать оси, легенду, ужать поля."""
+    fig.update_layout(
+        margin=_SPARKLINE_MARGIN,
+        height=_SPARKLINE_HEIGHT,
+        showlegend=False,
+    )
+    fig.update_xaxes(visible=False)
+    fig.update_yaxes(visible=False)
+
+
+def build_comparison_chart(series_by_ticker: Mapping[str, Sequence[CandleOut]]) -> go.Figure:
+    """Нормированные (rebase-to-100) close-линии нескольких бумаг (DESIGN §5, §10).
+
+    Каждая серия приводится к базе 100 от своей первой close-точки — сравнимы темпы, не
+    абсолютные уровни цен. Цвета — categorical-палитра (не семантические up/down), чтобы
+    серии не читались как «рост/падение». Пустые серии бумаги пропускаются.
+    """
+    fig = go.Figure()
+    color_index = 0
+    for ticker, candles in series_by_ticker.items():
+        rebased = _rebase_to_100([float(candle.close) for candle in candles])
+        if not rebased:
+            continue
+        color = theme.CHART_CATEGORICAL[color_index % len(theme.CHART_CATEGORICAL)]
+        color_index += 1
+        fig.add_trace(
+            go.Scatter(
+                x=[candle.trade_date for candle in candles],
+                y=rebased,
+                name=ticker,
+                mode="lines",
+                line={"color": color, "width": 2},
+            )
+        )
+    fig.update_layout(yaxis_title="Нормировано к 100")
+    return theme.apply_dark_template(fig)
+
+
+def _rebase_to_100(closes: Sequence[float]) -> list[float]:
+    """Привести серию к базе 100 от первой точки: value / first × 100 (rebase-to-100).
+
+    Пустая серия → пустой список. Нулевая или отрицательная база (цены MOEX > 0, но
+    защищаемся от деления на ноль) → пустой список: серию нечем нормировать корректно.
+    """
+    if not closes:
+        return []
+    base = closes[0]
+    if base <= 0:
+        return []
+    return [value / base * _REBASE_BASE for value in closes]
 
 
 def build_portfolio_vs_imoex_chart(

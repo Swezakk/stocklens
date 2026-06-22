@@ -16,7 +16,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from stocklens_core.enums import CollectorRunStatus, Currency, SentimentLabel
 
 
@@ -150,6 +150,28 @@ class CollectorRunOut(BaseModel):
     error_message: str | None
 
 
+class PositionIn(BaseModel):
+    """Входные данные создания/обновления позиции (зеркало api PositionIn).
+
+    Зеркалит имена/типы schemas.portfolio.PositionIn: `quantity > 0`, `avg_price > 0`,
+    `opened_at` обязан быть timezone-aware. Клиент-side валидация ловит очевидные ошибки
+    формы до сетевого вызова; источник истины правил остаётся на API.
+    """
+
+    ticker: str
+    quantity: int = Field(gt=0, description="Количество лотов (> 0)")
+    avg_price: Decimal = Field(gt=0, description="Средняя цена покупки (> 0)")
+    opened_at: datetime = Field(description="Дата открытия позиции (timezone-aware)")
+
+    @field_validator("opened_at")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        """Позиция обязана иметь временную зону (зеркало серверного правила)."""
+        if value.tzinfo is None:
+            raise ValueError("opened_at должен содержать временную зону (timezone-aware)")
+        return value
+
+
 class PositionOut(BaseModel):
     """Позиция портфеля с текущей рыночной оценкой."""
 
@@ -177,6 +199,41 @@ class PortfolioSummaryOut(BaseModel):
     imoex_max_drawdown: float
     period_from: date
     period_to: date
+
+
+class OptimizeRequest(BaseModel):
+    """Запрос оптимизации портфеля по Марковицу (зеркало api OptimizeRequest).
+
+    Зеркалит имена/типы schemas.portfolio.OptimizeRequest. `tickers=None` — оптимизировать
+    текущие позиции; `period_days ≥ 30`; параметры стратегии (`target_return` /
+    `target_volatility` / `risk_aversion`) опциональны и задаются под выбранную стратегию.
+    """
+
+    tickers: list[str] | None = Field(
+        default=None,
+        description="Список тикеров для оптимизации. None — использовать текущие позиции.",
+    )
+    period_days: int = Field(
+        default=365,
+        ge=30,
+        description="Глубина истории котировок в днях (не менее 30).",
+    )
+    strategy: OptimizationStrategy = Field(
+        default=OptimizationStrategy.MAX_SHARPE,
+        description="Стратегия оптимизации.",
+    )
+    target_return: float | None = Field(
+        default=None,
+        description="Целевая годовая доходность (для TARGET_RETURN).",
+    )
+    target_volatility: float | None = Field(
+        default=None,
+        description="Целевой уровень риска (для TARGET_RISK).",
+    )
+    risk_aversion: float | None = Field(
+        default=None,
+        description="Коэффициент неприятия риска λ (для MAX_UTILITY).",
+    )
 
 
 class FrontierPoint(BaseModel):

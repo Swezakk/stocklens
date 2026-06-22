@@ -351,32 +351,49 @@ def _render_index_chart(client: ApiClient) -> None:
     render_chart(build_index_line_chart(_index_points(values)))
 
 
-def _render_update_footer(client: ApiClient) -> None:
-    """Футер «Данные обновлены: <время МСК>» из последнего успешного сбора (DESIGN §10.1)."""
+def _render_header(client: ApiClient) -> None:
+    """Шапка Обзора: заголовок слева + время обновления справа на одной строке (DESIGN §10.1).
+
+    Заголовок-H1 один занимал бы всю ширину строки; время последнего сбора, выровненное по
+    правому краю, даёт шапке смысл и использует ширину вместо висящего внизу футера.
+    """
+    title_col, update_col = st.columns([2, 1], vertical_alignment="bottom")
+    with title_col:
+        st.title(_PAGE_TITLE)
+    with update_col:
+        _render_update_indicator(client)
+
+
+def _render_update_indicator(client: ApiClient) -> None:
+    """Индикатор времени последнего успешного сбора, выровненный по правому краю шапки.
+
+    Свежесть — второстепенный индикатор шапки: при сбое его источника он опускается (страница
+    строится без него), а не рисует красный баннер в заголовке. Остальные ветки данных
+    страницы показывают свой feedback сами.
+    """
     try:
         page = fetch_collector_runs(
             client,
             status=CollectorRunStatus.SUCCESS,
             limit=_RUNS_SCAN_LIMIT,
         )
-    except ApiError as exc:
-        render_error(exc.user_message)
+    except ApiError:
         return
-    st.caption(_format_update_footer(_latest_update_time(page.items)))
+    text = _format_update_footer(_latest_update_time(page.items))
+    st.markdown(f'<div class="overview-updated">{html.escape(text)}</div>', unsafe_allow_html=True)
 
 
 def render() -> None:
-    """Отрисовать страницу «Обзор»: KPI-полоса → муверы → линия IMOEX → футер (DESIGN §10.1).
+    """Отрисовать страницу «Обзор»: шапка → KPI-полоса → муверы → линия IMOEX (DESIGN §10.1).
 
     Каждая секция — карточка на inset-границе (st.container(border=True), CSS превращает её в
     Linear instrument-panel): группировка границей+тенью вместо разделителей st.divider.
     """
-    st.title(_PAGE_TITLE)
     client = get_api_client()
+    _render_header(client)
     with card("overview-kpi"):
         _render_kpi_strip(client)
     with card("overview-movers"):
         _render_movers(client)
     with card("overview-index"):
         _render_index_chart(client)
-    _render_update_footer(client)

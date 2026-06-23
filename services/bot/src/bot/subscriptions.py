@@ -1,0 +1,96 @@
+"""Разбор аргументов команд /subscribe и /unsubscribe (чистые функции, DESIGN §11).
+
+Хендлеры тонкие: разбор и валидацию формы аргументов делает этот слой (unit-тестируемо),
+а правила алертов и хранение — API (единственный источник истины). VOLATILITY_REGIME в B1
+не предлагается для подписки: алерт завязан на ML-прогноз волатильности, которого ещё нет.
+"""
+
+from dataclasses import dataclass, field
+
+from stocklens_core.enums import AlertKind
+
+#: Виды алертов, доступные для подписки в B1 (детерминированные).
+_SUBSCRIBABLE_KINDS = frozenset(
+    {AlertKind.PRICE_LEVEL, AlertKind.SENTIMENT_SPIKE, AlertKind.DIVIDEND_UPCOMING}
+)
+
+#: Ключи параметров подписки (без хардкода строк в логике).
+_PARAM_TICKER = "ticker"
+_PARAM_LEVEL = "level"
+
+#: Минимум токенов: price_level (kind + тикер + уровень) и опциональный тикер (kind + тикер).
+_PRICE_LEVEL_TOKENS = 3
+_KIND_AND_TICKER_TOKENS = 2
+
+_ERR_UNKNOWN_KIND = (
+    "Неизвестный вид алерта. Доступно: price_level, sentiment_spike, dividend_upcoming."
+)
+_ERR_PRICE_LEVEL_ARGS = "Для price_level укажите тикер и уровень: /subscribe price_level SBER 250"
+_ERR_LEVEL_NOT_NUMBER = "Уровень должен быть числом: /subscribe price_level SBER 250"
+_ERR_VOLATILITY_DEFERRED = "Алерт volatility_regime появится вместе с ML-прогнозами."
+_ERR_UNSUBSCRIBE_ID = "Укажите числовой id подписки: /unsubscribe 3"
+
+
+@dataclass(frozen=True)
+class ParsedSubscribe:
+    """Разобранная подписка: вид алерта и параметры для SubscriptionIn."""
+
+    kind: AlertKind
+    params: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ParseError:
+    """Ошибка разбора аргументов с готовым RU-сообщением для пользователя."""
+
+    message: str
+
+
+def parse_subscribe(args: str) -> ParsedSubscribe | ParseError:
+    """Разобрать аргументы /subscribe («kind [тикер] [уровень]») в подписку или ошибку."""
+    tokens = args.split()
+    try:
+        kind = AlertKind(tokens[0].lower())
+    except ValueError:
+        return ParseError(_ERR_UNKNOWN_KIND)
+
+    if kind is AlertKind.VOLATILITY_REGIME:
+        return ParseError(_ERR_VOLATILITY_DEFERRED)
+    if kind not in _SUBSCRIBABLE_KINDS:
+        return ParseError(_ERR_UNKNOWN_KIND)
+    if kind is AlertKind.PRICE_LEVEL:
+        return _parse_price_level(tokens)
+    return _parse_optional_ticker(kind, tokens)
+
+
+def _parse_price_level(tokens: list[str]) -> ParsedSubscribe | ParseError:
+    """price_level: обязательны тикер и числовой уровень."""
+    if len(tokens) < _PRICE_LEVEL_TOKENS:
+        return ParseError(_ERR_PRICE_LEVEL_ARGS)
+    try:
+        level = float(tokens[2])
+    except ValueError:
+        return ParseError(_ERR_LEVEL_NOT_NUMBER)
+    return ParsedSubscribe(
+        kind=AlertKind.PRICE_LEVEL,
+        params={_PARAM_TICKER: tokens[1].upper(), _PARAM_LEVEL: level},
+    )
+
+
+def _parse_optional_ticker(kind: AlertKind, tokens: list[str]) -> ParsedSubscribe:
+    """sentiment_spike / dividend_upcoming: тикер опционален (без тикера — по всему портфелю)."""
+    params: dict[str, object] = {}
+    if len(tokens) >= _KIND_AND_TICKER_TOKENS:
+        params[_PARAM_TICKER] = tokens[1].upper()
+    return ParsedSubscribe(kind=kind, params=params)
+
+
+def parse_unsubscribe(args: str) -> int | ParseError:
+    """Разобрать аргумент /unsubscribe (id подписки) в int или ошибку."""
+    tokens = args.split()
+    if not tokens:
+        return ParseError(_ERR_UNSUBSCRIBE_ID)
+    try:
+        return int(tokens[0])
+    except ValueError:
+        return ParseError(_ERR_UNSUBSCRIBE_ID)

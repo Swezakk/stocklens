@@ -101,6 +101,8 @@ module = [
     "mlflow.*",
     "statsmodels",
     "statsmodels.*",
+    "sklearn",
+    "sklearn.*",
     "joblib",
     "joblib.*",
     "scipy",

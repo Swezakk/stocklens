@@ -40,8 +40,9 @@ writing-plans) для этого проекта **не используется*
 1. **7 сервисов** в Docker Compose: `db` (PostgreSQL 16), `redis`, `ingestor`, `api`,
    `dashboard`, `bot`, `mlflow`. Не сливать и не дробить без обновления спеки.
 2. **Один write-путь.** В рыночные и новостные таблицы пишет только `ingestor`
-   (плюс Alembic-миграции). API владеет записью только в `portfolio_positions`
-   и `bot_subscriptions`.
+   (плюс Alembic-миграции). API владеет записью в `portfolio_positions`,
+   `bot_subscriptions` и `predictions` (последняя — при ML-инференсе, идемпотентный
+   upsert по натуральному ключу; см. ml-spec D2/§8.4).
 3. **`dashboard` и `bot` не знают про БД** — только HTTP-вызовы API. Прямой импорт
    SQLAlchemy-моделей или коннект к PostgreSQL из этих сервисов запрещён.
 4. **Общий код** (SQLAlchemy-модели, доменные `StrEnum`, настройки) — пакет

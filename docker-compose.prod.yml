@@ -157,6 +157,8 @@ services:
       API_URL: ${API_URL:-http://api:8000}
       AUTH_OWNER_USERNAME: ${AUTH_OWNER_USERNAME:-admin}
       AUTH_OWNER_PASSWORD: ${AUTH_OWNER_PASSWORD}
+      # Чат владельца для планового дайджеста 08:30 МСК (B3); алерты идут в chat_id подписки.
+      DIGEST_CHAT_ID: ${DIGEST_CHAT_ID}
     depends_on:
       api:
         condition: service_healthy

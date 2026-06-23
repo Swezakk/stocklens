@@ -142,6 +142,32 @@ services:
     mem_limit: 512m
     restart: unless-stopped
 
+  bot:
+    image: ghcr.io/swezakk/stocklens-bot:${IMAGE_TAG:-latest}
+    environment:
+      # Бот — потребитель API по HTTP (§3); токен бота и пароль владельца — из env-стора Dokploy.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      API_URL: ${API_URL:-http://api:8000}
+      AUTH_OWNER_USERNAME: ${AUTH_OWNER_USERNAME:-admin}
+      AUTH_OWNER_PASSWORD: ${AUTH_OWNER_PASSWORD}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      # Heartbeat-файл обновляется ботом каждые ~30 с; файл старше 5 минут — зависший polling.
+      test:
+        [
+          "CMD-SHELL",
+          "test -f /tmp/bot-heartbeat && find /tmp/bot-heartbeat -mmin -5 | grep -q .",
+        ]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    # Бот ходит наружу к Telegram (long-polling) и внутрь к API; входящих портов нет.
+    mem_limit: 384m
+    restart: unless-stopped
+
 volumes:
   # Внешний том создаётся вручную (docker volume create stocklens_pgdata) до первого деплоя.
   # external: true гарантирует, что Dokploy/`docker compose down -v` его не удалит.

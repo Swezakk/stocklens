@@ -132,5 +132,32 @@ services:
       - "127.0.0.1:8501:8501"
     restart: unless-stopped
 
+  bot:
+    build:
+      context: .
+      dockerfile: services/bot/Dockerfile
+    environment:
+      # Бот — потребитель API по HTTP (§3): логинится учётными данными владельца и шлёт
+      # дайджесты/команды в Telegram. Токен бота и пароль владельца — секреты из env.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      API_URL: ${API_URL:-http://api:8000}
+      AUTH_OWNER_USERNAME: ${AUTH_OWNER_USERNAME:-admin}
+      AUTH_OWNER_PASSWORD: ${AUTH_OWNER_PASSWORD}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      # Heartbeat-файл обновляется ботом каждые ~30 с; файл старше 5 минут — зависший polling.
+      test:
+        [
+          "CMD-SHELL",
+          "test -f /tmp/bot-heartbeat && find /tmp/bot-heartbeat -mmin -5 | grep -q .",
+        ]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
 volumes:
   pgdata:

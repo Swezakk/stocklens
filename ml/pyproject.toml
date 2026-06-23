@@ -28,6 +28,7 @@ dev = [
     "pytest>=9",
     "pytest-cov>=6",
     "mypy>=2.1",
+    "testcontainers[postgres]>=4.14",
 ]
 
 [tool.uv.sources]

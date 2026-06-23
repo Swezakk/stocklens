@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from bot.api_client.dto import (
+    IndexValue,
     NewsOut,
     PortfolioSummaryOut,
     PositionOut,
@@ -137,6 +138,30 @@ def test_format_digest_empty_sections_show_placeholders() -> None:
     text = formatting.format_digest(DigestData(summary=_summary(), dividends=[], negative_news=[]))
     assert "отсечек нет" in text
     assert "новостей нет" in text
+
+
+def test_format_digest_has_title_and_section_emoji() -> None:
+    """Дайджест структурирован: заголовок + эмодзи-якоря секций (портфель/дивиденды/новости)."""
+    text = formatting.format_digest(DigestData(summary=_summary(), dividends=[], negative_news=[]))
+    assert "Дайджест" in text
+    assert "📊" in text
+    assert "💰" in text
+    assert "📰" in text
+
+
+def test_format_imoex_uses_space_separator_and_direction_arrow() -> None:
+    """IMOEX: пробел-разделитель разрядов (как у сумм) + стрелка направления."""
+    data = DigestData(
+        summary=_summary(),
+        dividends=[],
+        negative_news=[],
+        imoex_yesterday=IndexValue(trade_date=date(2026, 6, 22), close=Decimal("3200.50")),
+        imoex_prior=IndexValue(trade_date=date(2026, 6, 21), close=Decimal("3150.00")),
+    )
+    text = formatting.format_digest(data)
+    assert "3 200.50" in text
+    assert "3,200.50" not in text
+    assert "📈" in text
 
 
 def test_format_subscription_created_confirms_label_and_id() -> None:

@@ -67,8 +67,8 @@ _ALERT_LABELS: dict[AlertKind, str] = {
 #: Заглушки пустых состояний (RU-копи).
 _NO_POSITIONS = "Портфель пуст: добавьте позиции в дашборде."
 _NO_SUBSCRIPTIONS = "У вас нет активных подписок. Добавьте через /subscribe."
-_DIGEST_NO_DIVIDENDS = "ближайших отсечек нет"
-_DIGEST_NO_NEWS = "негативных новостей нет"
+_DIGEST_NO_DIVIDENDS = "<i>ближайших отсечек нет</i>"
+_DIGEST_NO_NEWS = "<i>негативных новостей нет</i>"
 
 #: Предел длины заголовка новости в дайджесте (символов) — чтобы сообщение не разрослось.
 _NEWS_TITLE_LIMIT = 90
@@ -114,7 +114,7 @@ def _optional_money(value: Decimal | None) -> str:
 def format_portfolio(summary: PortfolioSummaryOut) -> str:
     """Собрать HTML-сводку портфеля: стоимость, P&L, доходность против IMOEX, позиции."""
     head = (
-        "<b>Портфель</b>\n"
+        "<b>📊 Портфель</b>\n"
         f"Стоимость: {_money(summary.total_value)} (вложено {_money(summary.total_cost)})\n"
         f"Нереализованный P&amp;L: {_signed_money(summary.total_unrealized_pnl)}\n"
         f"Доходность: {_signed_pct(summary.portfolio_return_pct)} "
@@ -126,13 +126,13 @@ def format_portfolio(summary: PortfolioSummaryOut) -> str:
         return f"{head}\n\n{_NO_POSITIONS}"
 
     rows = [
-        f"<code>{html.escape(pos.ticker)}</code> — {pos.quantity} шт · "
+        f"• <code>{html.escape(pos.ticker)}</code> — {pos.quantity} шт · "
         f"{_optional_money(pos.current_value)} · P&amp;L {_signed_money(pos.unrealized_pnl)}"
         if pos.unrealized_pnl is not None
-        else f"<code>{html.escape(pos.ticker)}</code> — {pos.quantity} шт · нет рыночной цены"
+        else f"• <code>{html.escape(pos.ticker)}</code> — {pos.quantity} шт · нет рыночной цены"
         for pos in summary.positions
     ]
-    return f"{head}\n\n<b>Позиции:</b>\n" + "\n".join(rows)
+    return f"{head}\n\n<b>Позиции</b>\n" + "\n".join(rows)
 
 
 def format_subscriptions(subscriptions: Sequence[SubscriptionOut]) -> str:
@@ -192,12 +192,13 @@ def format_alert(alert: PendingAlert) -> str:
 
 
 def format_digest(data: DigestData) -> str:
-    """Собрать HTML-дайджест: IMOEX + портфель + ближайшие отсечки + негативные новости."""
+    """Собрать HTML-дайджест: заголовок + IMOEX + портфель + отсечки + негативные новости."""
     blocks = [
+        "📋 <b>Дайджест по портфелю</b>",
         _format_imoex(data),
         format_portfolio(data.summary),
-        "<b>Ближайшие дивидендные отсечки</b>\n" + _format_dividends(data.dividends),
-        "<b>Негативные новости по портфелю</b>\n" + _format_news(data.negative_news),
+        "<b>💰 Дивидендные отсечки</b>\n" + _format_dividends(data.dividends),
+        "<b>📰 Негативные новости</b>\n" + _format_news(data.negative_news),
     ]
     return "\n\n".join(blocks)
 
@@ -250,14 +251,17 @@ def format_unsubscribed(sub_id: int) -> str:
 def _format_imoex(data: DigestData) -> str:
     """Строка IMOEX за вчера: close и изменение относительно позапрошлого дня (spec §357)."""
     if data.imoex_yesterday is None:
-        return "<b>IMOEX</b>\nДанные индекса недоступны"
-    close = data.imoex_yesterday.close
+        return "<b>📈 IMOEX</b>\nДанные индекса недоступны"
+    close_str = f"{data.imoex_yesterday.close:,.2f}".replace(",", " ")
+    date_str = f"{data.imoex_yesterday.trade_date:%d.%m.%Y}"
     if data.imoex_prior is not None:
-        change = float(close - data.imoex_prior.close)
-        change_pct = change / float(data.imoex_prior.close) * 100
-        change_str = _signed_pct(change_pct)
-        return (
-            f"<b>IMOEX</b> {data.imoex_yesterday.trade_date:%d.%m.%Y}\n"
-            f"Close: {close:,.2f} · Изменение: {change_str}"
+        change_pct = (
+            float(data.imoex_yesterday.close - data.imoex_prior.close)
+            / float(data.imoex_prior.close)
+            * 100
         )
-    return f"<b>IMOEX</b> {data.imoex_yesterday.trade_date:%d.%m.%Y}\nClose: {close:,.2f}"
+        arrow = "📈" if change_pct >= 0 else "📉"
+        return (
+            f"<b>{arrow} IMOEX</b> · {date_str}\nЗакрытие {close_str} · {_signed_pct(change_pct)}"
+        )
+    return f"<b>📈 IMOEX</b> · {date_str}\nЗакрытие {close_str}"

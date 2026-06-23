@@ -60,7 +60,7 @@ def parse_subscribe(args: str) -> ParsedSubscribe | ParseError:
         return ParseError(_ERR_UNKNOWN_KIND)
     if kind is AlertKind.PRICE_LEVEL:
         return _parse_price_level(tokens)
-    return _parse_optional_ticker(kind, tokens)
+    return _parse_ticker_required(kind, tokens)
 
 
 def _parse_price_level(tokens: list[str]) -> ParsedSubscribe | ParseError:
@@ -77,12 +77,11 @@ def _parse_price_level(tokens: list[str]) -> ParsedSubscribe | ParseError:
     )
 
 
-def _parse_optional_ticker(kind: AlertKind, tokens: list[str]) -> ParsedSubscribe:
-    """sentiment_spike / dividend_upcoming: тикер опционален (без тикера — по всему портфелю)."""
-    params: dict[str, object] = {}
-    if len(tokens) >= _KIND_AND_TICKER_TOKENS:
-        params[_PARAM_TICKER] = tokens[1].upper()
-    return ParsedSubscribe(kind=kind, params=params)
+def _parse_ticker_required(kind: AlertKind, tokens: list[str]) -> ParsedSubscribe | ParseError:
+    """sentiment_spike / dividend_upcoming: тикер обязателен (подписка — на конкретную бумагу)."""
+    if len(tokens) < _KIND_AND_TICKER_TOKENS:
+        return ParseError(f"Для {kind.value} укажите тикер: /subscribe {kind.value} SBER")
+    return ParsedSubscribe(kind=kind, params={_PARAM_TICKER: tokens[1].upper()})
 
 
 def parse_unsubscribe(args: str) -> int | ParseError:

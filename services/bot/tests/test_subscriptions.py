@@ -28,11 +28,16 @@ def test_parse_sentiment_spike_with_ticker() -> None:
     assert result.params == {"ticker": "GAZP"}
 
 
-def test_parse_dividend_upcoming_without_ticker_has_empty_params() -> None:
+def test_parse_dividend_upcoming_without_ticker_is_error() -> None:
     result = parse_subscribe("dividend_upcoming")
-    assert isinstance(result, ParsedSubscribe)
-    assert result.kind is AlertKind.DIVIDEND_UPCOMING
-    assert result.params == {}
+    assert isinstance(result, ParseError)
+    assert "тикер" in result.message.lower()
+
+
+def test_parse_sentiment_spike_without_ticker_is_error() -> None:
+    result = parse_subscribe("sentiment_spike")
+    assert isinstance(result, ParseError)
+    assert "тикер" in result.message.lower()
 
 
 def test_parse_unknown_kind_is_error() -> None:

@@ -14,28 +14,47 @@ from stocklens_core.enums import AlertKind, Currency
 from bot.api_client.dto import NewsOut, PendingAlert, PortfolioSummaryOut, SubscriptionOut
 from bot.digest_model import DigestData, UpcomingDividend
 
-#: Текст /start: приветствие + список команд (RU-копи, HTML).
 START_TEXT = (
-    "<b>StockLens</b> — аналитика рынка MOEX.\n\n"
+    "<b>📊 StockLens</b> — аналитика рынка MOEX.\n\n"
     "Команды:\n"
     "/portfolio — сводка портфеля: P&amp;L и доходность против IMOEX\n"
     "/digest — дайджест: портфель, ближайшие дивиденды, негативные новости\n"
-    "/subscribe — подписки на алерты\n"
-    "/unsubscribe — отписаться от алерта\n\n"
-    "<i>Алерты по подпискам подключаются — пока команда сохраняет ваши настройки.</i>"
+    "/subscribe — подписаться на алерт\n"
+    "/unsubscribe — мои подписки\n"
+    "/help — справка\n\n"
+    "Алерты работают: sweep каждые 30 минут, дайджест в 08:30 МСК."
 )
 
-#: Подсказка по /subscribe: виды алертов и формат аргументов (RU-копи, HTML).
+HELP_TEXT = (
+    "<b>📊 StockLens — справка</b>\n\n"
+    "<b>Что умеет бот:</b>\n"
+    "• /portfolio — стоимость портфеля, P&amp;L, доходность vs IMOEX, Sharpe, просадка\n"
+    "• /digest — утренний дайджест: IMOEX, портфель, ближайшие дивидендные отсечки, "
+    "негативные новости\n"
+    "• /subscribe — подписка на алерт (мастер выбора)\n"
+    "• /unsubscribe — список подписок с кнопками удаления\n\n"
+    "<b>🔔 Виды алертов:</b>\n"
+    "• <b>📉 Уровень цены</b> — уведомление, когда цена бумаги пересекает заданный уровень.\n"
+    "  Пример: <code>SBER, уровень 250</code>\n"
+    "• <b>⚠️ Всплеск негатива</b> — резкий рост доли негативных новостей по бумаге.\n"
+    "  Пример: <code>GAZP</code>\n"
+    "• <b>💰 Дивидендная отсечка</b> — уведомление за несколько дней до даты отсечки.\n"
+    "  Пример: <code>LKOH</code>\n\n"
+    "<b>Как работают подписки:</b>\n"
+    "Алерты проверяются каждые 30 минут. Дайджест отправляется автоматически в 08:30 МСК.\n"
+    "Управлять подписками можно кнопками ниже или командами /subscribe и /unsubscribe."
+)
+
 SUBSCRIBE_USAGE = (
-    "Подписка на алерт:\n"
+    "🔔 <b>Подписка на алерт:</b>\n"
     "<code>/subscribe price_level ТИКЕР УРОВЕНЬ</code> — цена пересекла уровень\n"
-    "<code>/subscribe sentiment_spike [ТИКЕР]</code> — всплеск негативных новостей\n"
-    "<code>/subscribe dividend_upcoming [ТИКЕР]</code> — близкая дивидендная отсечка\n\n"
-    "Пример: <code>/subscribe price_level SBER 250</code>"
+    "<code>/subscribe sentiment_spike ТИКЕР</code> — всплеск негативных новостей\n"
+    "<code>/subscribe dividend_upcoming ТИКЕР</code> — близкая дивидендная отсечка\n\n"
+    "Пример: <code>/subscribe price_level SBER 250</code>\n\n"
+    "Или используйте мастер /subscribe без аргументов."
 )
 
-#: Подсказка по /unsubscribe (RU-копи, HTML).
-UNSUBSCRIBE_USAGE = "Отписка: <code>/unsubscribe ID</code> — id берётся из списка /unsubscribe."
+UNSUBSCRIBE_USAGE = "Отписка: <code>/unsubscribe ID</code> — id берётся из списка выше."
 
 #: RU-метки видов алертов для отображения подписок.
 _ALERT_LABELS: dict[AlertKind, str] = {
@@ -126,7 +145,7 @@ def format_subscriptions(subscriptions: Sequence[SubscriptionOut]) -> str:
         params = _format_params(sub.params)
         suffix = f" ({params})" if params else ""
         rows.append(f"<code>{sub.id}</code> · {html.escape(label)}{html.escape(suffix)}")
-    return "<b>Ваши подписки:</b>\n" + "\n".join(rows)
+    return "<b>🔔 Ваши подписки:</b>\n" + "\n".join(rows)
 
 
 def _format_params(params: dict[str, object]) -> str:
@@ -218,14 +237,14 @@ def format_subscription_created(subscription: SubscriptionOut) -> str:
     params = _format_params(subscription.params)
     suffix = f" ({params})" if params else ""
     return (
-        f"Подписка создана: {html.escape(label)}{html.escape(suffix)} · "
+        f"✅ Подписка создана: {html.escape(label)}{html.escape(suffix)} · "
         f"id <code>{subscription.id}</code>."
     )
 
 
 def format_unsubscribed(sub_id: int) -> str:
     """Подтверждение удаления подписки (RU-копи)."""
-    return f"Подписка <code>{sub_id}</code> удалена."
+    return f"✅ Подписка <code>{sub_id}</code> удалена."
 
 
 def _format_imoex(data: DigestData) -> str:

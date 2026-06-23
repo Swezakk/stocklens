@@ -150,3 +150,44 @@ def test_format_subscription_created_confirms_label_and_id() -> None:
 
 def test_format_unsubscribed_confirms_id() -> None:
     assert "3" in formatting.format_unsubscribed(3)
+
+
+def test_start_text_describes_alerts_as_active() -> None:
+    assert "алерты подключаются" not in formatting.START_TEXT.lower()
+    assert "работают" in formatting.START_TEXT or "sweep" in formatting.START_TEXT
+
+
+def test_start_text_lists_main_commands() -> None:
+    assert "/portfolio" in formatting.START_TEXT
+    assert "/digest" in formatting.START_TEXT
+    assert "/subscribe" in formatting.START_TEXT
+    assert "/help" in formatting.START_TEXT
+
+
+def test_help_text_describes_three_alert_types() -> None:
+    help_lower = formatting.HELP_TEXT.lower()
+    assert "уровень цены" in help_lower
+    assert "всплеск негатива" in help_lower
+    assert "дивиденд" in help_lower
+
+
+def test_help_text_mentions_schedule() -> None:
+    assert "08:30" in formatting.HELP_TEXT or "30 минут" in formatting.HELP_TEXT
+
+
+def test_format_subscription_created_has_checkmark() -> None:
+    sub = SubscriptionOut(
+        id=9, chat_id=7, kind=AlertKind.SENTIMENT_SPIKE, params={"ticker": "GAZP"}
+    )
+    text = formatting.format_subscription_created(sub)
+    assert "✅" in text
+
+
+def test_format_unsubscribed_has_checkmark() -> None:
+    assert "✅" in formatting.format_unsubscribed(3)
+
+
+def test_format_subscriptions_header_has_bell_emoji() -> None:
+    sub = SubscriptionOut(id=1, chat_id=7, kind=AlertKind.PRICE_LEVEL, params={"ticker": "SBER"})
+    text = formatting.format_subscriptions([sub])
+    assert "🔔" in text

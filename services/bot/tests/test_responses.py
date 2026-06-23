@@ -1,7 +1,8 @@
 """Тесты сборки ответов на команды (DESIGN §11).
 
-Через реальный API-клиент + respx — покрывают ветки: успех, пустой ввод (подсказка+список),
-ошибка разбора, сбой API (ApiError → русское сообщение). Без рантайма Telegram.
+Через реальный API-клиент + respx — покрывают ветки: успех, ошибка API (ApiError → русское
+сообщение), ошибка разбора аргументов. Текстовый путь /subscribe и /unsubscribe (с аргументами)
+живёт в responses.py рядом с FSM-мастером в handlers.py. Без рантайма Telegram.
 """
 
 from datetime import date
@@ -16,12 +17,10 @@ from bot.responses import (
     subscribe_response,
     unsubscribe_response,
 )
-from stocklens_core.enums import AlertKind
 
 _BASE = "http://testapi"
 _PREFIX = "/api/v1"
 _STUB_BEARER = "b-1"
-_CHAT_ID = 7
 _TODAY = date(2026, 6, 23)
 _SERVER_ERROR = 500
 
@@ -58,15 +57,6 @@ def _summary_json() -> dict[str, object]:
         "imoex_max_drawdown": 0.0,
         "period_from": "2026-01-01",
         "period_to": "2026-06-23",
-    }
-
-
-def _subscription_json(sub_id: int) -> dict[str, object]:
-    return {
-        "id": sub_id,
-        "chat_id": _CHAT_ID,
-        "kind": AlertKind.PRICE_LEVEL.value,
-        "params": {"ticker": "SBER", "level": 250},
     }
 
 
@@ -117,66 +107,54 @@ async def test_digest_response_network_error_returns_unavailable_message() -> No
 
 
 @respx.mock
-async def test_subscribe_response_no_args_shows_usage_and_subscriptions() -> None:
-    respx.get(f"{_BASE}{_PREFIX}/bot/subscriptions").mock(
-        return_value=httpx.Response(200, json=[_subscription_json(1)])
-    )
-    client = _make_client()
-    try:
-        text = await subscribe_response(client, _CHAT_ID, None)
-    finally:
-        await client.aclose()
-
-    assert "price_level" in text
-    assert "Ваши подписки" in text
-
-
-@respx.mock
-async def test_subscribe_response_creates_subscription() -> None:
+async def test_subscribe_response_text_path_creates_subscription() -> None:
     respx.post(f"{_BASE}{_PREFIX}/bot/subscriptions").mock(
-        return_value=httpx.Response(201, json=_subscription_json(9))
+        return_value=httpx.Response(
+            201,
+            json={
+                "id": 7,
+                "chat_id": 100,
+                "kind": "price_level",
+                "params": {"ticker": "SBER", "level": 250},
+            },
+        )
     )
     client = _make_client()
     try:
-        text = await subscribe_response(client, _CHAT_ID, "price_level SBER 250")
+        text = await subscribe_response(client, chat_id=100, args="price_level SBER 250")
     finally:
         await client.aclose()
 
     assert "создана" in text
 
 
-async def test_subscribe_response_parse_error_returns_message() -> None:
+async def test_subscribe_response_parse_error_returns_hint() -> None:
     client = _make_client()
     try:
-        text = await subscribe_response(client, _CHAT_ID, "price_level SBER")
+        text = await subscribe_response(client, chat_id=100, args="bogus_kind")
     finally:
         await client.aclose()
 
-    assert "уровень" in text.lower()
+    assert "неизвестн" in text.lower()
 
 
 @respx.mock
-async def test_unsubscribe_response_deletes_by_id() -> None:
-    respx.delete(f"{_BASE}{_PREFIX}/bot/subscriptions/3").mock(return_value=httpx.Response(204))
+async def test_unsubscribe_response_text_path_deletes() -> None:
+    respx.delete(f"{_BASE}{_PREFIX}/bot/subscriptions/5").mock(return_value=httpx.Response(204))
     client = _make_client()
     try:
-        text = await unsubscribe_response(client, _CHAT_ID, "3")
+        text = await unsubscribe_response(client, args="5")
     finally:
         await client.aclose()
 
     assert "удалена" in text
 
 
-@respx.mock
-async def test_unsubscribe_response_no_args_lists_subscriptions() -> None:
-    respx.get(f"{_BASE}{_PREFIX}/bot/subscriptions").mock(
-        return_value=httpx.Response(200, json=[_subscription_json(5)])
-    )
+async def test_unsubscribe_response_non_numeric_returns_hint() -> None:
     client = _make_client()
     try:
-        text = await unsubscribe_response(client, _CHAT_ID, None)
+        text = await unsubscribe_response(client, args="abc")
     finally:
         await client.aclose()
 
-    assert "Ваши подписки" in text
-    assert "/unsubscribe" in text
+    assert "id" in text.lower()

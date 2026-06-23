@@ -21,8 +21,13 @@ _log = structlog.get_logger()
 
 
 def start_response() -> str:
-    """Текст /start (статический список команд)."""
+    """Текст /start: приветствие с актуальным статусом алертов."""
     return formatting.START_TEXT
+
+
+def help_response() -> str:
+    """Текст /help: справка по командам, видам алертов и подпискам."""
+    return formatting.HELP_TEXT
 
 
 async def portfolio_response(client: ApiClient) -> str:
@@ -43,10 +48,8 @@ async def digest_response(client: ApiClient, today: date) -> str:
     return formatting.format_digest(data)
 
 
-async def subscribe_response(client: ApiClient, chat_id: int, args: str | None) -> str:
-    """Текст /subscribe: создать подписку, либо подсказка + текущие подписки, либо ошибка."""
-    if not args:
-        return await _subscribe_help(client, chat_id)
+async def subscribe_response(client: ApiClient, chat_id: int, args: str) -> str:
+    """Текст /subscribe с аргументами (текстовый путь): создать подписку или вернуть ошибку."""
     parsed = parse_subscribe(args)
     if isinstance(parsed, ParseError):
         return parsed.message
@@ -59,10 +62,8 @@ async def subscribe_response(client: ApiClient, chat_id: int, args: str | None) 
     return formatting.format_subscription_created(created)
 
 
-async def unsubscribe_response(client: ApiClient, chat_id: int, args: str | None) -> str:
-    """Текст /unsubscribe: удалить по id, либо список подписок с id, либо ошибка."""
-    if not args:
-        return await _subscriptions_list(client, chat_id)
+async def unsubscribe_response(client: ApiClient, args: str) -> str:
+    """Текст /unsubscribe с id (текстовый путь): удалить подписку или вернуть ошибку."""
     parsed = parse_unsubscribe(args)
     if isinstance(parsed, ParseError):
         return parsed.message
@@ -71,24 +72,6 @@ async def unsubscribe_response(client: ApiClient, chat_id: int, args: str | None
     except ApiError as exc:
         return _error_text(exc)
     return formatting.format_unsubscribed(parsed)
-
-
-async def _subscribe_help(client: ApiClient, chat_id: int) -> str:
-    """Подсказка /subscribe + текущие подписки (сбой списка не скрывает подсказку)."""
-    try:
-        subscriptions = await client.list_subscriptions(chat_id)
-    except ApiError:
-        return formatting.SUBSCRIBE_USAGE
-    return formatting.SUBSCRIBE_USAGE + "\n\n" + formatting.format_subscriptions(subscriptions)
-
-
-async def _subscriptions_list(client: ApiClient, chat_id: int) -> str:
-    """Список подписок с id + подсказка /unsubscribe."""
-    try:
-        subscriptions = await client.list_subscriptions(chat_id)
-    except ApiError as exc:
-        return _error_text(exc)
-    return formatting.format_subscriptions(subscriptions) + "\n\n" + formatting.UNSUBSCRIBE_USAGE
 
 
 def _error_text(error: ApiError) -> str:

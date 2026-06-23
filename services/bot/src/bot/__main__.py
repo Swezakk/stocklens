@@ -13,10 +13,12 @@ import structlog
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot import handlers
 from bot.dependencies import build_api_client
 from bot.logging_setup import configure_logging
+from bot.menu import setup_bot_profile
 from bot.scheduler import build_scheduler
 from bot.settings import get_settings
 
@@ -42,7 +44,7 @@ async def main() -> None:
         token=settings.telegram_bot_token.get_secret_value(),
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    dispatcher = Dispatcher()
+    dispatcher = Dispatcher(storage=MemoryStorage())
     dispatcher.include_router(handlers.router)
     api_client = build_api_client(settings)
     scheduler = build_scheduler(bot, api_client, settings)
@@ -58,6 +60,12 @@ async def main() -> None:
             username=identity.username,
             api_base_url=settings.api_base_url,
         )
+        try:
+            await setup_bot_profile(bot)
+        except Exception:
+            # Профиль (меню/описания) — косметика: его сбой НЕ должен валить polling/алерты
+            # и ронять honest-healthcheck (heartbeat ниже). Логируем и продолжаем.
+            _log.exception("bot_profile_setup_failed")
         heartbeat = asyncio.create_task(
             _heartbeat_loop(settings.heartbeat_path, _HEARTBEAT_INTERVAL_SECONDS)
         )

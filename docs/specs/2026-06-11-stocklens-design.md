@@ -362,6 +362,20 @@ Streamlit обращается только к API; на каждой стран
 - Команды: `/start`, `/digest` (по запросу), `/portfolio`, `/subscribe`, `/unsubscribe`.
 - Бот — потребитель API; собственной бизнес-логики расчётов не содержит.
 
+**Реализация B2/B3** (детерминированные алерты + расписание; полный контракт —
+`~/.claude/plans/stocklens/2026-06-23-b2-b3-alerts-digest.md`):
+
+- **Оценка алертов — в API** (`AlertEvaluationService`, §9.1): бот по расписанию дёргает
+  `POST /bot/alerts/pending`, API возвращает сработавшие алерты, бот их шлёт. Дедуп —
+  Redis NX+TTL (fail-open).
+- **Активны 3 вида:** `price_level` (уровень между двумя последними дневными закрытиями),
+  `sentiment_spike` (свежая негативная новость по подписанному тикеру), `dividend_upcoming`
+  (ex-date в пределах `lead_days`, дефолт 3). `volatility_regime` **отложен до ML-слоя** (§8) —
+  бот не даёт на него подписаться, API его пропускает.
+- **Планировщик в боте** — APScheduler `AsyncIOScheduler` (Europe/Moscow) рядом с long-polling:
+  опрос алертов раз в 30 мин + дайджест cron 08:30 МСК. Дайджест — once-per-day через
+  `POST /bot/digest/claim` (Redis), цель — `DIGEST_CHAT_ID` владельца.
+
 ## 12. Качество
 
 - **TDD** для всей бизнес-логики (Red → Green → Refactor): коллекторы (HTTP мокается

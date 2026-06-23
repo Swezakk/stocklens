@@ -114,6 +114,25 @@ def test_format_digest_combines_portfolio_dividends_and_news() -> None:
     assert "РУСАЛ" in text
 
 
+def test_format_digest_dividend_non_rub_uses_currency_symbol() -> None:
+    """Дивиденд в USD в дайджесте — символ $, не рубль (регрессия валюты)."""
+    data = DigestData(
+        summary=_summary(),
+        dividends=[
+            UpcomingDividend(
+                ticker="GMKN",
+                ex_date=date(2026, 6, 25),
+                value=Decimal("5.00"),
+                currency=Currency.USD,
+            )
+        ],
+        negative_news=[],
+    )
+    text = formatting.format_digest(data)
+    assert "5.00 $" in text
+    assert "5.00 ₽" not in text
+
+
 def test_format_digest_empty_sections_show_placeholders() -> None:
     text = formatting.format_digest(DigestData(summary=_summary(), dividends=[], negative_news=[]))
     assert "отсечек нет" in text

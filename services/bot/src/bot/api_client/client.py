@@ -14,14 +14,19 @@
 """
 
 from collections.abc import Awaitable, Callable
+from datetime import date
 from typing import Any
 
 import httpx
 from stocklens_core.enums import SentimentLabel
 
 from bot.api_client.dto import (
+    DigestClaim,
     DividendPage,
+    IndexPage,
+    IndexValue,
     NewsPage,
+    PendingAlert,
     PortfolioSummaryOut,
     SubscriptionIn,
     SubscriptionOut,
@@ -192,3 +197,27 @@ class ApiClient:
             },
         )
         return NewsPage.model_validate(response.json())
+
+    async def get_pending_alerts(self) -> list[PendingAlert]:
+        """POST /bot/alerts/pending — список сработавших алертов (bare list, не Page)."""
+        response = await self._request(_HTTP_POST, "/bot/alerts/pending")
+        body: list[object] = response.json()
+        return [PendingAlert.model_validate(item) for item in body]
+
+    async def claim_digest(self, for_date: date) -> bool:
+        """POST /bot/digest/claim?for_date= — зарезервировать дайджест; True если первый вызов."""
+        response = await self._request(
+            _HTTP_POST,
+            "/bot/digest/claim",
+            params={"for_date": for_date.isoformat()},
+        )
+        return DigestClaim.model_validate(response.json()).claimed
+
+    async def get_index(self, index_code: str = "IMOEX", limit: int = 2) -> list[IndexValue]:
+        """GET /data/index — значения биржевого индекса (Page, сортировка по дате убывания)."""
+        response = await self._request(
+            _HTTP_GET,
+            "/data/index",
+            params={"index_code": index_code, "limit": limit},
+        )
+        return IndexPage.model_validate(response.json()).items

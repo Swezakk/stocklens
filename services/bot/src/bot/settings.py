@@ -56,6 +56,30 @@ class BotSettings(BaseSettings):
         ge=60,
         description="Запас до истечения токена для проактивного refresh; ≥ leeway API 60s.",
     )
+    digest_chat_id: int = Field(
+        validation_alias=AliasChoices("DIGEST_CHAT_ID", "digest_chat_id"),
+        description="Telegram chat_id владельца для ежедневного дайджеста.",
+    )
+    alert_poll_interval_minutes: int = Field(
+        default=30,
+        gt=0,
+        validation_alias=AliasChoices("ALERT_POLL_INTERVAL_MINUTES", "alert_poll_interval_minutes"),
+        description="Интервал опроса сработавших алертов в минутах.",
+    )
+    digest_hour_msk: int = Field(
+        default=8,
+        ge=0,
+        le=23,
+        validation_alias=AliasChoices("DIGEST_HOUR_MSK", "digest_hour_msk"),
+        description="Час отправки дайджеста по московскому времени (0-23).",
+    )
+    digest_minute_msk: int = Field(
+        default=30,
+        ge=0,
+        le=59,
+        validation_alias=AliasChoices("DIGEST_MINUTE_MSK", "digest_minute_msk"),
+        description="Минута отправки дайджеста по московскому времени (0-59).",
+    )
     log_pretty: bool = Field(
         default=False,
         description="True → ConsoleRenderer (dev), False → JSONRenderer (прод).",

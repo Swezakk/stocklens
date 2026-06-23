@@ -12,6 +12,23 @@ from decimal import Decimal
 from pydantic import BaseModel, Field
 from stocklens_core.enums import AlertKind, Currency, SentimentLabel
 
+__all__ = [
+    "DigestClaim",
+    "DividendOut",
+    "DividendPage",
+    "IndexPage",
+    "IndexValue",
+    "NewsOut",
+    "NewsPage",
+    "Page",
+    "PendingAlert",
+    "PortfolioSummaryOut",
+    "PositionOut",
+    "SentimentOut",
+    "SubscriptionIn",
+    "SubscriptionOut",
+]
+
 
 class Page[T](BaseModel):
     """Конверт постраничного ответа списковых эндпоинтов (items/total/limit/offset)."""
@@ -109,3 +126,46 @@ class DividendPage(Page[DividendOut]):
 
 class NewsPage(Page[NewsOut]):
     """Страница новостей."""
+
+
+class PendingAlert(BaseModel):
+    """Сработавший алерт, готовый к отправке ботом (зеркало PendingAlertOut API).
+
+    Поля по видам алертов (остальные None):
+    - price_level:        level, close
+    - sentiment_spike:    article_id, article_title, article_url, article_published_at
+    - dividend_upcoming:  ex_date, dividend_value, dividend_currency
+    """
+
+    chat_id: int
+    kind: AlertKind
+    ticker: str
+
+    level: Decimal | None = None
+    close: Decimal | None = None
+
+    article_id: int | None = None
+    article_title: str | None = None
+    article_url: str | None = None
+    article_published_at: datetime | None = None
+
+    ex_date: date | None = None
+    dividend_value: Decimal | None = None
+    dividend_currency: Currency | None = None
+
+
+class DigestClaim(BaseModel):
+    """Результат резервирования дайджеста (зеркало DigestClaimOut API)."""
+
+    claimed: bool
+
+
+class IndexValue(BaseModel):
+    """Значение биржевого индекса за торговый день (зеркало IndexValueOut API)."""
+
+    trade_date: date
+    close: Decimal
+
+
+class IndexPage(Page[IndexValue]):
+    """Страница значений биржевого индекса."""

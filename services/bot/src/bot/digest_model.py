@@ -6,13 +6,13 @@
 """
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
 from stocklens_core.enums import Currency
 
-from bot.api_client.dto import NewsOut, PortfolioSummaryOut
+from bot.api_client.dto import IndexValue, NewsOut, PortfolioSummaryOut
 
 
 @dataclass(frozen=True)
@@ -27,8 +27,10 @@ class UpcomingDividend:
 
 @dataclass(frozen=True)
 class DigestData:
-    """Собранные данные дайджеста: сводка портфеля, ближайшие отсечки, негативные новости."""
+    """Собранные данные дайджеста: IMOEX, сводка портфеля, ближайшие отсечки, негативные новости."""
 
     summary: PortfolioSummaryOut
     dividends: Sequence[UpcomingDividend]
     negative_news: Sequence[NewsOut]
+    imoex_yesterday: IndexValue | None = field(default=None)
+    imoex_prior: IndexValue | None = field(default=None)

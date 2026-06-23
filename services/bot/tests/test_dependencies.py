@@ -28,6 +28,7 @@ def _settings() -> BotSettings:
             "api_base_url": _BASE,
             "api_prefix": _PREFIX,
             "auth_username": "admin",
+            "digest_chat_id": 111,
         }
     )
 

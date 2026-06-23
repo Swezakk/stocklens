@@ -111,6 +111,18 @@ def _summary_json(tickers: list[str]) -> dict[str, object]:
     }
 
 
+def _index_page_json() -> dict[str, object]:
+    return {
+        "items": [
+            {"trade_date": "2026-06-22", "close": "3200.50"},
+            {"trade_date": "2026-06-21", "close": "3150.00"},
+        ],
+        "total": 2,
+        "limit": 2,
+        "offset": 0,
+    }
+
+
 def _dividend_page_json(ex_date: str) -> dict[str, object]:
     item = {"id": 1, "security_id": 1, "ex_date": ex_date, "value": "33.30", "currency": "RUB"}
     return {"items": [item], "total": 1, "limit": 100, "offset": 0}
@@ -135,6 +147,9 @@ async def test_gather_digest_assembles_sections() -> None:
     respx.get(f"{_BASE}{_PREFIX}/portfolio/summary").mock(
         return_value=httpx.Response(200, json=_summary_json(["SBER"]))
     )
+    respx.get(f"{_BASE}{_PREFIX}/data/index").mock(
+        return_value=httpx.Response(200, json=_index_page_json())
+    )
     respx.get(f"{_BASE}{_PREFIX}/data/dividends").mock(
         return_value=httpx.Response(200, json=_dividend_page_json("2026-06-25"))
     )
@@ -149,12 +164,16 @@ async def test_gather_digest_assembles_sections() -> None:
 
     assert [item.ticker for item in data.dividends] == ["SBER"]
     assert len(data.negative_news) == 1
+    assert data.imoex_yesterday is not None
 
 
 @respx.mock
 async def test_gather_digest_empty_portfolio_skips_dividends_and_news() -> None:
     respx.get(f"{_BASE}{_PREFIX}/portfolio/summary").mock(
         return_value=httpx.Response(200, json=_summary_json([]))
+    )
+    respx.get(f"{_BASE}{_PREFIX}/data/index").mock(
+        return_value=httpx.Response(200, json=_index_page_json())
     )
     dividends_route = respx.get(f"{_BASE}{_PREFIX}/data/dividends").mock(
         return_value=httpx.Response(200, json=_dividend_page_json("2026-06-25"))

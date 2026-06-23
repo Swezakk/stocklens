@@ -9,9 +9,9 @@ import html
 from collections.abc import Sequence
 from decimal import Decimal
 
-from stocklens_core.enums import AlertKind
+from stocklens_core.enums import AlertKind, Currency
 
-from bot.api_client.dto import NewsOut, PortfolioSummaryOut, SubscriptionOut
+from bot.api_client.dto import NewsOut, PendingAlert, PortfolioSummaryOut, SubscriptionOut
 from bot.digest_model import DigestData, UpcomingDividend
 
 #: Текст /start: приветствие + список команд (RU-копи, HTML).
@@ -58,6 +58,21 @@ _NEWS_TITLE_LIMIT = 90
 def _money(value: Decimal) -> str:
     """Денежная сумма с разрядным пробелом и знаком рубля (без знака +)."""
     return f"{value:,.2f}".replace(",", " ") + " ₽"
+
+
+#: Символы валют для сумм, которые могут быть не в рублях (дивиденды MOEX бывают USD/EUR/CNY).
+_CURRENCY_SYMBOLS: dict[Currency, str] = {
+    Currency.RUB: "₽",
+    Currency.USD: "$",
+    Currency.EUR: "€",
+    Currency.CNY: "¥",
+}
+
+
+def _money_in(value: Decimal, currency: Currency) -> str:
+    """Денежная сумма с символом указанной валюты (дивиденды бывают не в рублях)."""
+    symbol = _CURRENCY_SYMBOLS.get(currency, currency.value)
+    return f"{value:,.2f}".replace(",", " ") + f" {symbol}"
 
 
 def _signed_money(value: Decimal) -> str:
@@ -126,9 +141,41 @@ def _format_params(params: dict[str, object]) -> str:
     return ", ".join(parts)
 
 
+def format_alert(alert: PendingAlert) -> str:
+    """Сформировать HTML-сообщение для отправки по сработавшему алерту.
+
+    Каждый вид алерта форматируется по собственному шаблону; VOLATILITY_REGIME и
+    неизвестные виды — безопасный фолбэк без падения (бот не должен крашиться от
+    нового вида алерта в API).
+    """
+    ticker = html.escape(alert.ticker)
+    if alert.kind == AlertKind.PRICE_LEVEL:
+        level = _money(alert.level) if alert.level is not None else "—"
+        close = _money(alert.close) if alert.close is not None else "—"
+        return (
+            f"<b>Уровень цены: {ticker}</b>\n"
+            f"Цена пересекла уровень {level}\n"
+            f"Последний close: {close}"
+        )
+    if alert.kind == AlertKind.SENTIMENT_SPIKE:
+        title = html.escape(alert.article_title or ticker)
+        url = alert.article_url or ""
+        link = f'<a href="{html.escape(url)}">{title}</a>' if url else title
+        return f"<b>Негативные новости: {ticker}</b>\n{link}"
+    if alert.kind == AlertKind.DIVIDEND_UPCOMING:
+        ex = alert.ex_date.strftime("%d.%m.%Y") if alert.ex_date is not None else "—"
+        if alert.dividend_value is not None and alert.dividend_currency is not None:
+            value = _money_in(alert.dividend_value, alert.dividend_currency)
+        else:
+            value = "—"
+        return f"<b>Дивидендная отсечка: {ticker}</b>\nДата отсечки: {ex} · Дивиденд: {value}"
+    return f"<b>Алерт: {ticker}</b>\nВид: {html.escape(alert.kind.value)}"
+
+
 def format_digest(data: DigestData) -> str:
-    """Собрать HTML-дайджест: сводка портфеля + ближайшие отсечки + негативные новости."""
+    """Собрать HTML-дайджест: IMOEX + портфель + ближайшие отсечки + негативные новости."""
     blocks = [
+        _format_imoex(data),
         format_portfolio(data.summary),
         "<b>Ближайшие дивидендные отсечки</b>\n" + _format_dividends(data.dividends),
         "<b>Негативные новости по портфелю</b>\n" + _format_news(data.negative_news),
@@ -141,7 +188,8 @@ def _format_dividends(dividends: Sequence[UpcomingDividend]) -> str:
     if not dividends:
         return _DIGEST_NO_DIVIDENDS
     return "\n".join(
-        f"<code>{html.escape(item.ticker)}</code> — {item.ex_date:%d.%m.%Y} · {_money(item.value)}"
+        f"<code>{html.escape(item.ticker)}</code> — {item.ex_date:%d.%m.%Y} · "
+        f"{_money_in(item.value, item.currency)}"
         for item in dividends
     )
 
@@ -178,3 +226,19 @@ def format_subscription_created(subscription: SubscriptionOut) -> str:
 def format_unsubscribed(sub_id: int) -> str:
     """Подтверждение удаления подписки (RU-копи)."""
     return f"Подписка <code>{sub_id}</code> удалена."
+
+
+def _format_imoex(data: DigestData) -> str:
+    """Строка IMOEX за вчера: close и изменение относительно позапрошлого дня (spec §357)."""
+    if data.imoex_yesterday is None:
+        return "<b>IMOEX</b>\nДанные индекса недоступны"
+    close = data.imoex_yesterday.close
+    if data.imoex_prior is not None:
+        change = float(close - data.imoex_prior.close)
+        change_pct = change / float(data.imoex_prior.close) * 100
+        change_str = _signed_pct(change_pct)
+        return (
+            f"<b>IMOEX</b> {data.imoex_yesterday.trade_date:%d.%m.%Y}\n"
+            f"Close: {close:,.2f} · Изменение: {change_str}"
+        )
+    return f"<b>IMOEX</b> {data.imoex_yesterday.trade_date:%d.%m.%Y}\nClose: {close:,.2f}"

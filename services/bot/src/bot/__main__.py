@@ -17,6 +17,7 @@ from aiogram.enums import ParseMode
 from bot import handlers
 from bot.dependencies import build_api_client
 from bot.logging_setup import configure_logging
+from bot.scheduler import build_scheduler
 from bot.settings import get_settings
 
 _log = structlog.get_logger()
@@ -44,6 +45,7 @@ async def main() -> None:
     dispatcher = Dispatcher()
     dispatcher.include_router(handlers.router)
     api_client = build_api_client(settings)
+    scheduler = build_scheduler(bot, api_client, settings)
 
     try:
         # Heartbeat стартует только ПОСЛЕ успешного get_me. Иначе healthcheck врёт: при
@@ -59,10 +61,12 @@ async def main() -> None:
         heartbeat = asyncio.create_task(
             _heartbeat_loop(settings.heartbeat_path, _HEARTBEAT_INTERVAL_SECONDS)
         )
+        scheduler.start()
         try:
             await dispatcher.start_polling(bot, api_client=api_client)
         finally:
             heartbeat.cancel()
+            scheduler.shutdown(wait=False)
     finally:
         await api_client.aclose()
         await bot.session.close()

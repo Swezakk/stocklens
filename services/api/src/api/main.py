@@ -10,7 +10,7 @@ from api.core.middleware import RequestIdMiddleware
 from api.core.problem import install_exception_handlers
 from api.core.settings import ApiSettings
 from api.routers import auth as auth_router
-from api.routers import bot, data, health, monitoring, portfolio, watchlist
+from api.routers import bot, data, health, monitoring, portfolio, predict, watchlist
 
 
 def create_app() -> FastAPI:
@@ -46,5 +46,6 @@ def create_app() -> FastAPI:
     app.include_router(portfolio.router, dependencies=_auth_dep)
     app.include_router(watchlist.router, dependencies=_auth_dep)
     app.include_router(bot.router, dependencies=_auth_dep)
+    app.include_router(predict.router, dependencies=_auth_dep)
 
     return app

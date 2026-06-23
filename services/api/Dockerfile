@@ -6,8 +6,10 @@ WORKDIR /build
 # скриптов (uvicorn) указывал бы на путь сборки и ломался после COPY в runtime.
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 
-# stocklens-core копируется первым — он нужен как path-зависимость до uv sync.
+# stocklens-core и stocklens-ml копируются первыми — path-зависимости до uv sync
+# (stocklens-ml даёт единый расчёт фич с обучением для ML-serving, §8.5).
 COPY packages/stocklens-core /build/packages/stocklens-core
+COPY ml /build/ml
 COPY services/api/pyproject.toml /build/services/api/pyproject.toml
 COPY services/api/uv.lock /build/services/api/uv.lock
 

@@ -4,6 +4,7 @@
 """
 
 import functools
+from datetime import date
 
 from pydantic import PostgresDsn, RedisDsn
 from pydantic_settings import BaseSettings
@@ -32,6 +33,17 @@ class ApiSettings(BaseSettings):
     schema_wait_attempts: int = 30
     schema_wait_interval_seconds: float = 2.0
     watchlist_grace_seconds: int = 3600
+
+    # ML-serving (ml-spec §8.6). Загрузка моделей из реестра MLflow по алиасу.
+    mlflow_tracking_uri: str = "http://mlflow:5000"
+    ml_volatility_model: str = "stocklens-volatility"
+    ml_trend_model: str = "stocklens-trend"
+    ml_model_alias: str = "production"
+    ml_required_for_ready: bool = True
+    ml_load_attempts: int = 10
+    ml_load_interval_seconds: float = 3.0
+    # Окно истории для инференса = окно обучения (пост-2022, структурный разрыв; ml-spec D8).
+    ml_train_start: date = date(2022, 4, 1)
 
     model_config = {
         "case_sensitive": False,

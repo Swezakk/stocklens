@@ -8,7 +8,14 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Protocol
 
-from stocklens_core.enums import AlertKind, CollectorRunStatus, Currency, SentimentLabel
+import pandas as pd
+from stocklens_core.enums import (
+    AlertKind,
+    CollectorRunStatus,
+    Currency,
+    PredictionKind,
+    SentimentLabel,
+)
 from stocklens_core.models.market import Dividend, Security
 from stocklens_core.models.news import NewsArticle, NewsSentiment
 from stocklens_core.models.operations import CollectorRun
@@ -79,6 +86,59 @@ class DividendRepository(Protocol):
         offset: int,
     ) -> tuple[list[Dividend], int]:
         """Вернуть страницу дивидендов и общее число записей."""
+        ...
+
+
+class VolatilityFeatureRepository(Protocol):
+    """Чтение рыночных рядов для сборки фич волатильности (ml-spec §8.5).
+
+    Возвращает DataFrame'ы в форме, ожидаемой ``stocklens_ml.features.assemble`` (тот же
+    расчёт фич, что при обучении — без train/serve skew). Weekend-сессии НЕ исключаются здесь:
+    их фильтрует сам сборщик фич (ему нужен флаг is_weekend_session).
+    """
+
+    async def load_candles(self, security_id: int) -> pd.DataFrame:
+        """Все свечи бумаги: trade_date, open, high, low, close, volume, is_weekend_session."""
+        ...
+
+    async def load_dividends(self, security_id: int) -> pd.DataFrame:
+        """Дивиденды бумаги: ex_date, value, currency."""
+        ...
+
+    async def load_splits(self, security_id: int) -> pd.DataFrame:
+        """Сплиты бумаги: split_date, before, after."""
+        ...
+
+
+class PredictionRepository(Protocol):
+    """Чтение/запись ML-прогнозов. API — единственный write-путь в predictions (§4, D2).
+
+    Идемпотентный upsert по натуральному ключу
+    ``(security_id, predicted_for, horizon_days, kind, model_version)``; ``get_value`` —
+    read-through кэш (повторный инференс в тот же день той же версией — no-op).
+    """
+
+    async def get_value(
+        self,
+        security_id: int,
+        predicted_for: date,
+        horizon_days: int,
+        kind: PredictionKind,
+        model_version: str,
+    ) -> float | None:
+        """Вернуть сохранённое значение прогноза по натуральному ключу или None."""
+        ...
+
+    async def upsert(
+        self,
+        security_id: int,
+        predicted_for: date,
+        horizon_days: int,
+        kind: PredictionKind,
+        value: float,
+        model_version: str,
+    ) -> None:
+        """Создать/обновить прогноз по натуральному ключу. Коммитит транзакцию."""
         ...
 
 

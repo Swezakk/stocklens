@@ -7,7 +7,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from api.core.db import RedisDep, SessionDep
+from api.core.db import RedisDep, SessionDep, SettingsDep
+from api.ml.deps import MlBundleDep
 
 router = APIRouter(prefix="/api/v1", tags=["health"])
 
@@ -24,6 +25,7 @@ class ReadyResponse(BaseModel):
     status: Literal["ready", "degraded"]
     database: Literal["ok", "unavailable"]
     cache: Literal["ok", "degraded"]
+    models: Literal["ok", "unavailable"]
 
 
 @router.get(
@@ -46,10 +48,13 @@ async def health_live() -> LiveResponse:
 async def health_ready(
     session: SessionDep,
     redis: RedisDep,
+    bundle: MlBundleDep,
+    settings: SettingsDep,
 ) -> JSONResponse:
-    """Readiness: проверить БД и Redis.
+    """Readiness: проверить БД, Redis и ML-модели.
 
-    503 если БД недоступна; 200 с status='degraded' если Redis недоступен.
+    503 если БД недоступна или модели не загружены при ML_REQUIRED_FOR_READY=true (§8.2);
+    200 с status='degraded' при недоступном Redis или информативно недоступных моделях.
     """
     db_status: Literal["ok", "unavailable"] = "ok"
     cache_status: Literal["ok", "degraded"] = "ok"
@@ -64,15 +69,19 @@ async def health_ready(
     except Exception:
         cache_status = "degraded"
 
+    models_status: Literal["ok", "unavailable"] = "ok" if bundle.ready() else "unavailable"
+
     overall_status: Literal["ready", "degraded"] = (
-        "degraded" if cache_status == "degraded" else "ready"
+        "ready" if cache_status == "ok" and models_status == "ok" else "degraded"
     )
 
-    http_status = 503 if db_status == "unavailable" else 200
+    models_block_ready = models_status == "unavailable" and settings.ml_required_for_ready
+    http_status = 503 if db_status == "unavailable" or models_block_ready else 200
 
     body = ReadyResponse(
         status=overall_status,
         database=db_status,
         cache=cache_status,
+        models=models_status,
     )
     return JSONResponse(status_code=http_status, content=body.model_dump())

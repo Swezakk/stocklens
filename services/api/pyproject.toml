@@ -14,7 +14,8 @@ dependencies = [
     "stocklens-core",
     "pyportfolioopt>=1.6",
     "numpy>=2.4",
-    "pandas>=3",
+    # mlflow (загрузка ML-моделей, §8.1) ограничивает pandas<3; выравниваем с ml/ (pandas>=2.2).
+    "pandas>=2.2,<3",
     "scipy>=1.17",
     # pypfopt → skbase импортирует packaging в runtime, но не объявляет его как
     # hard-зависимость; в dev-окружении он присутствует транзитивно, в prod (--no-dev) — нет.
@@ -22,6 +23,14 @@ dependencies = [
     "pyjwt[crypto]>=2.10",
     # OAuth2PasswordRequestForm (эндпоинт /auth/token) парсит form-data — нужен python-multipart.
     "python-multipart>=0.0.18",
+    # ML-serving (ml-spec §8): загрузка моделей из реестра (mlflow), рефит GARCH в pyfunc (arch),
+    # единый расчёт фич с обучением (stocklens-ml — только features/data, без train-зависимостей).
+    "stocklens-ml",
+    "arch>=7.2",
+    "mlflow>=3.1,<4",
+    # Security floor для транзитивной зависимости (через mlflow): msgpack<1.2.1 уязвим
+    # GHSA-6v7p-g79w-8964 (краш процесса при повторном Unpacker после ошибки).
+    "msgpack>=1.2.1",
 ]
 
 [dependency-groups]
@@ -40,6 +49,7 @@ dev = [
 
 [tool.uv.sources]
 stocklens-core = { path = "../../packages/stocklens-core", editable = true }
+stocklens-ml = { path = "../../ml", editable = true }
 
 [build-system]
 requires = ["uv_build"]

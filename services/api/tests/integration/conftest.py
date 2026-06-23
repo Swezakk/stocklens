@@ -11,6 +11,9 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import cast
 
+import numpy as np
+import numpy.typing as npt
+import pandas as pd
 import pytest
 import pytest_asyncio
 import redis.asyncio as aioredis
@@ -23,6 +26,7 @@ from api.core.cache import RedisClientProtocol
 from api.core.db import get_redis, get_session
 from api.core.settings import ApiSettings
 from api.main import create_app
+from api.ml.bundle import LoadedVolatilityModel, ModelBundle
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -47,6 +51,30 @@ _TEST_PRINCIPAL = Principal(sub=_TEST_OWNER_USERNAME, scopes=[], claims={})
 os.environ["AUTH_SECRET"] = _TEST_SIGNING_KEY
 os.environ["AUTH_OWNER_USERNAME"] = _TEST_OWNER_USERNAME
 os.environ["AUTH_OWNER_PASSWORD"] = _TEST_OWNER_CREDENTIAL
+
+
+#: Дисперсия стаб-модели (доли²) → волатильность sqrt = 0.03.
+STUB_VARIANCE = 0.0009
+
+
+class _StubVolatilityPredictor:
+    """Стаб модели волатильности: возвращает фиксированную дисперсию (без MLflow/arch)."""
+
+    def forecast(self, frame: pd.DataFrame) -> npt.NDArray[np.float64]:
+        return np.array([STUB_VARIANCE], dtype=np.float64)
+
+
+def stub_bundle() -> ModelBundle:
+    """Bundle с загруженной стаб-моделью волатильности — имитация прод-состояния (§8.1)."""
+    return ModelBundle(
+        volatility=LoadedVolatilityModel(
+            predictor=_StubVolatilityPredictor(),
+            model_version="test-1",
+            method="garch",
+            metrics={"qlike": 0.844, "qlike_baseline": 2.203, "rmse": 0.0025},
+            horizon_days=5,
+        )
+    )
 
 
 def _alembic_config(sync_url: str) -> Config:
@@ -105,6 +133,9 @@ def test_settings(pg_container: PostgresContainer, redis_container: RedisContain
     os.environ["DATABASE_URL_ASYNC"] = _async_url(pg_container)
     os.environ["REDIS_URL"] = f"redis://localhost:{redis_port}/0"
     os.environ["LOG_PRETTY"] = "true"
+    # Большинство integration-тестов не поднимают lifespan (нет загрузки моделей) — ML не
+    # обязателен для readiness; ML-тесты переопределяют это и выставляют app.state.ml сами.
+    os.environ["ML_REQUIRED_FOR_READY"] = "false"
     return ApiSettings.model_validate({})
 
 
@@ -133,6 +164,7 @@ async def client(
     app = create_app()
     app.state.settings = test_settings
     app.state.auth_settings = test_auth_settings
+    app.state.ml = stub_bundle()
 
     async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
@@ -165,6 +197,7 @@ async def noauth_client(
     app = create_app()
     app.state.settings = test_settings
     app.state.auth_settings = test_auth_settings
+    app.state.ml = stub_bundle()
 
     async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
         yield db_session

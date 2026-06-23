@@ -146,6 +146,35 @@ class RateLimitError(ApiError):
         self.retry_after_seconds = retry_after_seconds
 
 
+class ModelNotLoadedError(ApiError):
+    """ML-модель не загружена из реестра (registry недоступен на старте/инференсе)."""
+
+    status = 503
+    title = "ML-модель недоступна"
+    problem_type = "https://stocklens.local/problems/model-not-loaded"
+
+    def __init__(self, model: str) -> None:
+        super().__init__(f"Модель {model!r} недоступна: реестр MLflow не отвечает")
+        self.model = model
+
+
+class InsufficientHistoryError(ApiError):
+    """Недостаточно истории котировок для построения ML-прогноза по тикеру."""
+
+    status = 422
+    title = "Недостаточно истории"
+    problem_type = "https://stocklens.local/problems/insufficient-history"
+
+    def __init__(self, ticker: str, available: int, required: int) -> None:
+        super().__init__(
+            f"Не удалось построить прогноз: по тикеру {ticker!r} недостаточно истории "
+            f"({available} наблюдений, требуется не менее {required})"
+        )
+        self.ticker = ticker
+        self.available = available
+        self.required = required
+
+
 class SchemaNotReadyError(Exception):
     """БД не готова к работе: схема не применена после N попыток."""
 

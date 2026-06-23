@@ -14,9 +14,11 @@ from fastapi import FastAPI
 from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from starlette.concurrency import run_in_threadpool
 
 from api.core.exceptions import SchemaNotReadyError
 from api.core.settings import ApiSettings
+from api.ml.loader import load_bundle
 
 logger = structlog.get_logger(__name__)
 
@@ -72,6 +74,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Стабы redis-py не параметризуют from_url по decode_responses — присваиваем через app.state.
     app.state.redis = Redis.from_url(str(settings.redis_url), decode_responses=True)
     app.state.session_factory = session_factory
+
+    # ML-модели из реестра (§8.1): mlflow sync → threadpool, чтобы не блокировать event-loop.
+    # Недоступность реестра не валит процесс — bundle пустой, readiness репортит degraded (§8.2).
+    app.state.ml = await run_in_threadpool(load_bundle, settings)
 
     logger.info("api_started")
     yield

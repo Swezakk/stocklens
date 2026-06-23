@@ -7,6 +7,7 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.cache import RedisClientProtocol
+from api.core.settings import ApiSettings
 
 
 async def get_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
@@ -21,5 +22,12 @@ def get_redis(request: Request) -> RedisClientProtocol:
     return client
 
 
+def get_api_settings(request: Request) -> ApiSettings:
+    """Получить настройки сервиса из app.state."""
+    settings: ApiSettings = request.app.state.settings
+    return settings
+
+
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 RedisDep = Annotated[RedisClientProtocol, Depends(get_redis)]
+SettingsDep = Annotated[ApiSettings, Depends(get_api_settings)]

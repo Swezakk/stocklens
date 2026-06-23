@@ -34,6 +34,11 @@ uvx ruff check ml && uvx ruff format --check ml             # линт/форм�
 backend — PostgreSQL, см. [docker-compose.yml](../docker-compose.yml) §2.3 спеки). Данные —
 из прод-БД на **чтение** (там история котировок).
 
+> **Прод vs dev.** Прод-API грузит модель из **прод**-реестра, поэтому переобучение для прода
+> должно логировать туда же: `MLFLOW_TRACKING_URI` указывает на прод-MLflow (доступ — туннель
+> или Traefik-роут, решается на фазе деплоя, тикет `docs/tickets/b9d3e5a8-…`). Локальный
+> `localhost:5000` ниже — для dev-прогонов и отладки.
+
 ```bash
 # 1. Окружение
 uv sync --project ml

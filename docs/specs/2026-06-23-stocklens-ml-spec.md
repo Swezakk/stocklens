@@ -480,7 +480,7 @@ ticker: str
 predicted_for: date          # as-of дата (последний использованный close)
 horizon_days: int = 5
 volatility: float            # sqrt(прогноз дисперсии), decimal
-model: str                   # имя модели-победителя (garch | har_rv_x)
+model: str                   # имя метода-победителя (garch | har_rv) — METHOD_GARCH/METHOD_HAR
 model_version: str
 metrics_vs_baseline: { qlike: float, qlike_baseline: float, rmse: float }
 ```

@@ -163,6 +163,30 @@ jobs:
           uv run --project services/bot
           mypy services/bot/src services/bot/tests
 
+  ml:
+    name: ml (pytest + mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: uv sync
+        run: uv sync --project ml
+
+      - name: pytest (coverage >= 50%, integration в testcontainers)
+        run: >
+          uv run --project ml
+          pytest ml/tests
+          --cov=stocklens_ml --cov-fail-under=50
+
+      - name: mypy strict
+        run: >
+          uv run --project ml
+          mypy ml/src/stocklens_ml ml/tests
+
   build:
     name: docker compose build
     runs-on: ubuntu-latest
@@ -194,7 +218,7 @@ jobs:
     name: publish images (GHCR)
     runs-on: ubuntu-latest
     # Публикуем только зелёный main: образы тянет прод-сервер (Dokploy), сборка — здесь.
-    needs: [lint, core, migrations, ingestor, api, dashboard, bot]
+    needs: [lint, core, migrations, ingestor, api, dashboard, bot, ml]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read

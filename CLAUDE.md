@@ -154,7 +154,10 @@ Conventional Commits: `type(scope)` на английском, описание 
   / `… mypy services/ingestor/src services/ingestor/tests` — сервис ingestor.
 - `uv sync --project services/api` / `uv run --project services/api pytest services/api/tests`
   / `… mypy services/api/src services/api/tests` — сервис api (async, testcontainers PG+Redis).
-- `docker compose up -d --build` — стек: db → migrations → ingestor → redis → api.
+- `uv sync --project ml` / `uv run --project ml pytest ml/tests`
+  / `… mypy ml/src/stocklens_ml ml/tests` — оффлайн ML-проект (волатильность; рунбук — `ml/README.md`).
+- `docker compose up -d mlflow` — сервис MLflow (tracking + реестр; backend PostgreSQL).
+- `docker compose up -d --build` — стек: db → migrations → ingestor → redis → mlflow → api.
 - `uvx ruff check .` / `uvx ruff format --check .` — линт всего репозитория.
 - Python субпроектов пиннится локальным `.python-version` (3.12) в каждом
   пакете/сервисе — `uv sync --project` не наследует корневой пин.

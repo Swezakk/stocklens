@@ -12,8 +12,17 @@ class _WorkingRedis:
     async def get(self, key: str) -> str | None:
         return self._store.get(key)
 
-    async def set(self, key: str, value: str, ex: int | None = None) -> None:
+    async def set(
+        self,
+        key: str,
+        value: str,
+        ex: int | None = None,
+        nx: bool = False,
+    ) -> bool | None:
+        if nx and key in self._store:
+            return None
         self._store[key] = value
+        return True
 
     async def incr(self, key: str) -> int:
         value = int(self._store.get(key, "0")) + 1
@@ -36,7 +45,13 @@ class _BrokenRedis:
     async def get(self, key: str) -> str | None:
         raise ConnectionError("Redis недоступен")
 
-    async def set(self, key: str, value: str, ex: int | None = None) -> None:
+    async def set(
+        self,
+        key: str,
+        value: str,
+        ex: int | None = None,
+        nx: bool = False,
+    ) -> bool | None:
         raise ConnectionError("Redis недоступен")
 
     async def incr(self, key: str) -> int:
@@ -101,3 +116,25 @@ async def test_cache_get_json_returns_none_on_redis_error() -> None:
 
 async def test_cache_set_json_silently_fails_on_redis_error() -> None:
     await _broken().set_json("key", {"data": 1}, ttl=60)
+
+
+async def test_set_nx_returns_true_when_key_is_new() -> None:
+    """set_nx: ключ отсутствует → True (создан)."""
+    cache = _working()
+    result = await cache.set_nx("dedup:key:1", ttl_seconds=60)
+    assert result is True
+
+
+async def test_set_nx_returns_false_when_key_already_exists() -> None:
+    """set_nx: ключ уже есть → False (дубль)."""
+    cache = _working()
+    await cache.set_nx("dedup:key:2", ttl_seconds=60)
+    result = await cache.set_nx("dedup:key:2", ttl_seconds=60)
+    assert result is False
+
+
+async def test_set_nx_returns_true_on_redis_error_fail_open() -> None:
+    """set_nx: Redis недоступен → True (fail-open, алерт всё равно проходит)."""
+    cache = _broken()
+    result = await cache.set_nx("dedup:key:3", ttl_seconds=60)
+    assert result is True

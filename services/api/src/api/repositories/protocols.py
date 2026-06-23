@@ -216,6 +216,14 @@ class BotSubscriptionRepository(Protocol):
         """Вернуть все подписки для указанного chat_id."""
         ...
 
+    async def list_all_active(self) -> list[BotSubscription]:
+        """Вернуть все подписки по всем chat_id (для оценки алертов).
+
+        «Активные» — все строки таблицы: у BotSubscription нет поля is_active,
+        удалённая подписка физически удаляется.
+        """
+        ...
+
     async def create(
         self,
         chat_id: int,

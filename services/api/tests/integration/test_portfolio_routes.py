@@ -9,8 +9,11 @@ from decimal import Decimal
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from stocklens_core.enums import AlertKind
+from stocklens_core.models.market import Candle
 
 from tests.integration.seed import (
+    seed_bot_subscription,
     seed_candles_range,
     seed_index_values_range,
     seed_key_rate,
@@ -240,10 +243,17 @@ async def test_portfolio_optimize_single_ticker_returns_422(
 async def test_bot_create_list_delete_subscription(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    """POST → GET → DELETE полный цикл подписки."""
+    """POST → GET → DELETE полный цикл подписки (sentiment_spike с известным тикером)."""
+    security = await seed_security(db_session, ticker="BOT_CYCLE_SBER")
+    await db_session.commit()
+
     resp_create = await client.post(
         "/api/v1/bot/subscriptions",
-        json={"chat_id": 999, "kind": "sentiment_spike", "params": {}},
+        json={
+            "chat_id": 999,
+            "kind": "sentiment_spike",
+            "params": {"ticker": security.ticker},
+        },
     )
     assert resp_create.status_code == 201
     sub_id = resp_create.json()["id"]
@@ -260,14 +270,168 @@ async def test_bot_create_list_delete_subscription(
     assert resp_del2.status_code == 404
 
 
+async def test_bot_create_subscription_without_ticker_returns_422(
+    client: AsyncClient,
+) -> None:
+    """POST любого типа без 'ticker' → 422 Problem+JSON с упоминанием ticker."""
+    resp = await client.post(
+        "/api/v1/bot/subscriptions",
+        json={"chat_id": 111, "kind": "sentiment_spike", "params": {}},
+    )
+    assert resp.status_code == 422
+    body = resp.json()
+    assert "ticker" in body["detail"]
+
+
 async def test_bot_create_price_level_without_level_returns_422(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    """POST price_level без параметра 'level' → 422 Problem+JSON с русским сообщением."""
+    """POST price_level без 'level' → 422 Problem+JSON с упоминанием level."""
+    security = await seed_security(db_session, ticker="BOT_PRICE_SBER")
+    await db_session.commit()
+
     resp = await client.post(
         "/api/v1/bot/subscriptions",
-        json={"chat_id": 111, "kind": "price_level", "params": {}},
+        json={
+            "chat_id": 111,
+            "kind": "price_level",
+            "params": {"ticker": security.ticker},
+        },
     )
     assert resp.status_code == 422
     body = resp.json()
     assert "level" in body["detail"]
+
+
+async def test_get_pending_alerts_returns_empty_when_no_subscriptions(
+    client: AsyncClient,
+) -> None:
+    """POST /bot/alerts/pending: нет подписок → пустой список 200."""
+    resp = await client.post("/api/v1/bot/alerts/pending")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+async def test_get_pending_alerts_returns_price_level_alert_when_level_crossed(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """POST /bot/alerts/pending: level между двух close → alert_kind=price_level."""
+    security = await seed_security(db_session, ticker="ALERT_SBER")
+    prev_close = Decimal("280.00")
+    last_close = Decimal("285.00")
+    level_between = 282.5
+
+    for trade_date, close in [
+        (date(2026, 6, 21), prev_close),
+        (date(2026, 6, 22), last_close),
+    ]:
+        candle = Candle(
+            security_id=security.id,
+            trade_date=trade_date,
+            open=close,
+            high=close,
+            low=close,
+            close=close,
+            volume=1_000_000,
+            value=close * Decimal("1000000"),
+            is_weekend_session=False,
+        )
+        db_session.add(candle)
+
+    await seed_bot_subscription(
+        db_session,
+        chat_id=77777,
+        kind=AlertKind.PRICE_LEVEL,
+        params={"ticker": "ALERT_SBER", "level": level_between},
+    )
+    await db_session.commit()
+
+    resp = await client.post("/api/v1/bot/alerts/pending")
+    assert resp.status_code == 200
+    alerts = [a for a in resp.json() if a["ticker"] == "ALERT_SBER"]
+    assert len(alerts) >= 1
+    assert alerts[0]["kind"] == "price_level"
+
+
+async def test_get_pending_alerts_deduplicates_on_second_call(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """POST /bot/alerts/pending: второй вызов → алерт уже задедуплицирован."""
+    security = await seed_security(db_session, ticker="DEDUP_SBER")
+    prev_close = Decimal("280.00")
+    last_close = Decimal("285.00")
+    level_between = 282.5
+
+    for trade_date, close in [
+        (date(2026, 6, 21), prev_close),
+        (date(2026, 6, 22), last_close),
+    ]:
+        candle = Candle(
+            security_id=security.id,
+            trade_date=trade_date,
+            open=close,
+            high=close,
+            low=close,
+            close=close,
+            volume=1_000_000,
+            value=close * Decimal("1000000"),
+            is_weekend_session=False,
+        )
+        db_session.add(candle)
+
+    await seed_bot_subscription(
+        db_session,
+        chat_id=88888,
+        kind=AlertKind.PRICE_LEVEL,
+        params={"ticker": "DEDUP_SBER", "level": level_between},
+    )
+    await db_session.commit()
+
+    resp1 = await client.post("/api/v1/bot/alerts/pending")
+    assert resp1.status_code == 200
+    count_first = len([a for a in resp1.json() if a["ticker"] == "DEDUP_SBER"])
+
+    resp2 = await client.post("/api/v1/bot/alerts/pending")
+    assert resp2.status_code == 200
+    count_second = len([a for a in resp2.json() if a["ticker"] == "DEDUP_SBER"])
+
+    assert count_first >= 1
+    assert count_second == 0
+
+
+async def test_digest_claim_first_call_returns_claimed_true(
+    client: AsyncClient,
+) -> None:
+    """POST /bot/digest/claim: первый вызов → claimed=true."""
+    resp = await client.post("/api/v1/bot/digest/claim", params={"for_date": "2030-01-01"})
+    assert resp.status_code == 200
+    assert resp.json()["claimed"] is True
+
+
+async def test_digest_claim_second_call_returns_claimed_false(
+    client: AsyncClient,
+) -> None:
+    """POST /bot/digest/claim: второй вызов с той же датой → claimed=false."""
+    resp1 = await client.post("/api/v1/bot/digest/claim", params={"for_date": "2030-01-02"})
+    assert resp1.status_code == 200
+    assert resp1.json()["claimed"] is True
+
+    resp2 = await client.post("/api/v1/bot/digest/claim", params={"for_date": "2030-01-02"})
+    assert resp2.status_code == 200
+    assert resp2.json()["claimed"] is False
+
+
+async def test_get_pending_alerts_returns_401_without_auth(
+    noauth_client: AsyncClient,
+) -> None:
+    """POST /bot/alerts/pending без токена → 401."""
+    resp = await noauth_client.post("/api/v1/bot/alerts/pending")
+    assert resp.status_code == 401
+
+
+async def test_digest_claim_returns_401_without_auth(
+    noauth_client: AsyncClient,
+) -> None:
+    """POST /bot/digest/claim без токена → 401."""
+    resp = await noauth_client.post("/api/v1/bot/digest/claim")
+    assert resp.status_code == 401

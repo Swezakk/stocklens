@@ -21,6 +21,14 @@ class SqlBotSubscriptionRepository:
         )
         return list(result.scalars().all())
 
+    async def list_all_active(self) -> list[BotSubscription]:
+        """Вернуть все подписки по всем chat_id, сортировка по id.
+
+        «Активные» — все строки таблицы: удалённая подписка физически удаляется.
+        """
+        result = await self._session.execute(select(BotSubscription).order_by(BotSubscription.id))
+        return list(result.scalars().all())
+
     async def create(
         self,
         chat_id: int,

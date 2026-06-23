@@ -112,6 +112,17 @@ class InvalidStrategyParamsError(ApiError):
         super().__init__(detail)
 
 
+class InvalidAlertParamsError(ApiError):
+    """Недопустимые или отсутствующие параметры подписки на алерт."""
+
+    status = 422
+    title = "Недопустимые параметры алерта"
+    problem_type = "https://stocklens.local/problems/invalid-alert-params"
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+
+
 class UnauthorizedError(ApiError):
     """Запрос не прошёл аутентификацию: токен отсутствует, недействителен или истёк."""
 

@@ -3,21 +3,33 @@
 from stocklens_core.enums import AlertKind
 from stocklens_core.models.portfolio import BotSubscription
 
-from api.core.exceptions import InsufficientDataError, SubscriptionNotFoundError
-from api.repositories.protocols import BotSubscriptionRepository
-from api.schemas.bot import SubscriptionIn, SubscriptionOut
+from api.core.exceptions import InvalidAlertParamsError, SubscriptionNotFoundError
+from api.repositories.protocols import BotSubscriptionRepository, SecurityRepository
+from api.schemas.bot import DIVIDEND_LEAD_DAYS_DEFAULT, SubscriptionIn, SubscriptionOut
 
-_PRICE_LEVEL_REQUIRED_KEY = "level"
+_PARAM_TICKER = "ticker"
+_PARAM_LEVEL = "level"
+_PARAM_LEAD_DAYS = "lead_days"
+
+_LEAD_DAYS_MIN = 1
+_LEAD_DAYS_MAX = 30
 
 
 class BotSubscriptionService:
     """Управляет Telegram-подписками пользователей.
 
-    Валидирует параметры по типу алерта: price_level требует числовой ключ 'level'.
+    Валидирует параметры по типу алерта и разрешает ticker в securities.
+    Все три активных типа (price_level, sentiment_spike, dividend_upcoming) требуют
+    обязательный параметр 'ticker', который должен быть известен в БД.
     """
 
-    def __init__(self, repo: BotSubscriptionRepository) -> None:
+    def __init__(
+        self,
+        repo: BotSubscriptionRepository,
+        security_repo: SecurityRepository,
+    ) -> None:
         self._repo = repo
+        self._security_repo = security_repo
 
     async def list_by_chat(self, chat_id: int) -> list[SubscriptionOut]:
         """Вернуть все подписки для указанного chat_id."""
@@ -28,9 +40,18 @@ class BotSubscriptionService:
         """Создать подписку.
 
         Raises:
-            InsufficientDataError: если параметры не соответствуют типу алерта.
+            InvalidAlertParamsError: если параметры не соответствуют типу алерта
+                или ticker не найден в БД.
         """
-        _validate_params(data.kind, data.params)
+        ticker = _require_ticker(data.kind, data.params)
+        security = await self._security_repo.get_by_ticker(ticker)
+        if security is None:
+            raise InvalidAlertParamsError(
+                f"Тикер {ticker!r} не найден в БД. "
+                f"Проверьте тикер или дождитесь синхронизации данных."
+            )
+        _validate_kind_specific_params(data.kind, data.params)
+
         subscription = await self._repo.create(
             chat_id=data.chat_id,
             kind=data.kind,
@@ -49,24 +70,74 @@ class BotSubscriptionService:
             raise SubscriptionNotFoundError(sub_id)
 
 
-def _validate_params(kind: AlertKind, params: dict[str, object]) -> None:
-    """Проверить соответствие параметров типу алерта.
+def _require_ticker(kind: AlertKind, params: dict[str, object]) -> str:
+    """Извлечь обязательный строковый параметр 'ticker'.
 
     Raises:
-        InsufficientDataError: если обязательный ключ отсутствует или имеет неверный тип.
+        InvalidAlertParamsError: если параметр отсутствует или не является строкой.
+    """
+    raw = params.get(_PARAM_TICKER)
+    if raw is None:
+        raise InvalidAlertParamsError(
+            f"Для подписки {kind} обязателен параметр 'ticker' (тикер ценной бумаги)"
+        )
+    if not isinstance(raw, str):
+        raise InvalidAlertParamsError(
+            f"Параметр 'ticker' должен быть строкой, получено: {type(raw).__name__}"
+        )
+    return raw
+
+
+def _validate_kind_specific_params(kind: AlertKind, params: dict[str, object]) -> None:
+    """Проверить дополнительные параметры, специфичные для типа алерта.
+
+    Raises:
+        InvalidAlertParamsError: если параметры нарушают контракт типа алерта.
     """
     if kind == AlertKind.PRICE_LEVEL:
-        level = params.get(_PRICE_LEVEL_REQUIRED_KEY)
-        if level is None:
-            raise InsufficientDataError(
-                f"Для подписки price_level обязателен параметр {_PRICE_LEVEL_REQUIRED_KEY!r} "
-                f"с числовым значением целевого уровня цены"
-            )
-        if not isinstance(level, int | float):
-            raise InsufficientDataError(
-                f"Параметр {_PRICE_LEVEL_REQUIRED_KEY!r} должен быть числом, "
-                f"получено: {type(level).__name__}"
-            )
+        _validate_price_level_params(params)
+    elif kind == AlertKind.DIVIDEND_UPCOMING:
+        _validate_dividend_upcoming_params(params)
+
+
+def _validate_price_level_params(params: dict[str, object]) -> None:
+    """Проверить параметры price_level: level должен быть положительным числом.
+
+    Raises:
+        InvalidAlertParamsError: если 'level' отсутствует, не числовой или <= 0.
+    """
+    raw = params.get(_PARAM_LEVEL)
+    if raw is None:
+        raise InvalidAlertParamsError(
+            "Для подписки price_level обязателен параметр 'level' "
+            "(числовой целевой уровень цены, > 0)"
+        )
+    if not isinstance(raw, int | float):
+        raise InvalidAlertParamsError(
+            f"Параметр 'level' должен быть числом, получено: {type(raw).__name__}"
+        )
+    if raw <= 0:
+        raise InvalidAlertParamsError(
+            f"Параметр 'level' должен быть положительным числом, получено: {raw}"
+        )
+
+
+def _validate_dividend_upcoming_params(params: dict[str, object]) -> None:
+    """Проверить параметры dividend_upcoming: lead_days в диапазоне [1..30].
+
+    Raises:
+        InvalidAlertParamsError: если 'lead_days' не числовой или вне диапазона.
+    """
+    raw = params.get(_PARAM_LEAD_DAYS, DIVIDEND_LEAD_DAYS_DEFAULT)
+    if not isinstance(raw, int):
+        raise InvalidAlertParamsError(
+            f"Параметр 'lead_days' должен быть целым числом, получено: {type(raw).__name__}"
+        )
+    if not (_LEAD_DAYS_MIN <= raw <= _LEAD_DAYS_MAX):
+        raise InvalidAlertParamsError(
+            f"Параметр 'lead_days' должен быть в диапазоне "
+            f"[{_LEAD_DAYS_MIN}..{_LEAD_DAYS_MAX}], получено: {raw}"
+        )
 
 
 def _to_out(subscription: BotSubscription) -> SubscriptionOut:

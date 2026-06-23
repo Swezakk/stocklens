@@ -1,4 +1,4 @@
-"""Обёртка над Redis для кэширования JSON-значений.
+"""Обёртка над Redis для кэширования JSON-значений и атомарной дедупликации.
 
 При недоступности Redis логирует предупреждение и прозрачно обращается к фабрике —
 кэш не является единственной точкой отказа для HTTP-запроса.
@@ -25,7 +25,13 @@ class RedisClientProtocol(Protocol):
 
     async def get(self, key: str) -> str | None: ...
 
-    async def set(self, key: str, value: str, ex: int | None = None) -> None: ...
+    async def set(
+        self,
+        key: str,
+        value: str,
+        ex: int | None = None,
+        nx: bool = False,
+    ) -> bool | None: ...
 
     async def incr(self, key: str) -> int: ...
 
@@ -34,6 +40,16 @@ class RedisClientProtocol(Protocol):
     async def ping(self) -> bool: ...
 
     async def aclose(self) -> None: ...
+
+
+class AlertNxStore(Protocol):
+    """Узкий интерфейс атомарной дедупликации алертов.
+
+    Достаточен для AlertEvaluationService — не требует полного RedisClientProtocol.
+    Реализуется RedisCache (production) и FakeRedis (unit-тесты).
+    """
+
+    async def set_nx(self, key: str, ttl_seconds: int) -> bool: ...
 
 
 def _default_encoder(obj: object) -> str:
@@ -67,6 +83,20 @@ class RedisCache:
             await self._client.set(key, serialized, ex=ttl)
         except Exception:
             logger.warning("cache_unavailable", operation="set", key=key)
+
+    async def set_nx(self, key: str, ttl_seconds: int) -> bool:
+        """Атомарно установить ключ только если он ещё не существует (NX).
+
+        Возвращает True если ключ был создан (впервые), False если уже существовал.
+        При недоступности Redis возвращает True (fail-open): потеря дедупликации
+        предпочтительнее потери самого алерта.
+        """
+        try:
+            result = await self._client.set(key, "1", ex=ttl_seconds, nx=True)
+            return result is not None
+        except Exception:
+            logger.warning("cache_unavailable", operation="set_nx", key=key)
+            return True
 
     async def get_or_set(
         self,

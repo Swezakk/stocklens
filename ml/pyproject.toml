@@ -8,9 +8,6 @@ dependencies = [
     "scipy>=1.14",
     "arch>=7.2",
     "statsmodels>=0.14",
-    "scikit-learn>=1.5",
-    # catboost и shap (модель тренда, поздняя фаза) добавляются в фазе тренда: shap тянет
-    # numba/llvmlite, конфликтующие с Python 3.12 + numpy 2.x — резолвится при добавлении.
     "mlflow>=3.1,<4",
     "sqlalchemy>=2.0.50,<2.1",
     "psycopg[binary]>=3.3",
@@ -21,6 +18,16 @@ dependencies = [
     # GHSA-6v7p-g79w-8964 (краш процесса при повторном Unpacker после ошибки).
     "msgpack>=1.2.1",
     "stocklens-core",
+]
+
+[project.optional-dependencies]
+# Зависимости только для ОБУЧЕНИЯ, не для serving-инференса. Вынесены в extra, чтобы образ
+# API (зависит от stocklens-ml БЕЗ [train]) их не тянул: serving использует только
+# features/data (чистый pandas) + arch (рефит pyfunc). catboost и shap (модель тренда,
+# поздняя фаза) добавляются СЮДА — shap тянет numba/llvmlite, конфликтующие с Python 3.12 +
+# numpy 2.x; вынос в extra не даёт им протечь в образ API.
+train = [
+    "scikit-learn>=1.5",
 ]
 
 [dependency-groups]

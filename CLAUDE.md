@@ -154,8 +154,9 @@ Conventional Commits: `type(scope)` на английском, описание 
   / `… mypy services/ingestor/src services/ingestor/tests` — сервис ingestor.
 - `uv sync --project services/api` / `uv run --project services/api pytest services/api/tests`
   / `… mypy services/api/src services/api/tests` — сервис api (async, testcontainers PG+Redis).
-- `uv sync --project ml` / `uv run --project ml pytest ml/tests`
-  / `… mypy ml/src/stocklens_ml ml/tests` — оффлайн ML-проект (волатильность; рунбук — `ml/README.md`).
+- `uv sync --project ml --extra train` / `uv run --project ml --extra train pytest ml/tests`
+  / `… --extra train mypy ml/src/stocklens_ml ml/tests` — оффлайн ML-проект (волатильность;
+  `[train]` extra = sklearn/обучение, в образ API не тянется; рунбук — `ml/README.md`).
 - `docker compose up -d mlflow` — сервис MLflow (tracking + реестр; backend PostgreSQL).
 - `docker compose up -d --build` — стек: db → migrations → ingestor → redis → mlflow → api.
 - `uvx ruff check .` / `uvx ruff format --check .` — линт всего репозитория.

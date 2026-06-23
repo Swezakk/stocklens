@@ -21,10 +21,13 @@ walk-forward-валидация → регистрация лучшей моде
 
 ## Локальная разработка
 
+`[train]` extra — зависимости обучения (sklearn; позже catboost/shap). В образ API они не
+тянутся (serving зависит от stocklens-ml без `[train]`), поэтому для ml/ всегда `--extra train`:
+
 ```bash
-uv sync --project ml
-uv run --project ml pytest ml/tests                         # тесты (loader — testcontainers, нужен Docker)
-uv run --project ml mypy ml/src/stocklens_ml ml/tests       # типизация (strict)
+uv sync --project ml --extra train
+uv run --project ml --extra train pytest ml/tests           # тесты (loader — testcontainers, нужен Docker)
+uv run --project ml --extra train mypy ml/src/stocklens_ml ml/tests   # типизация (strict)
 uvx ruff check ml && uvx ruff format --check ml             # линт/формат
 ```
 
@@ -40,13 +43,13 @@ backend — PostgreSQL, см. [docker-compose.yml](../docker-compose.yml) §2.3 
 > `localhost:5000` ниже — для dev-прогонов и отладки.
 
 ```bash
-# 1. Окружение
-uv sync --project ml
+# 1. Окружение (с extra train — обучение использует sklearn)
+uv sync --project ml --extra train
 
 # 2. Оценка + регистрация champion (DATABASE_URL — read-only DSN прод-БД; MLFLOW — адрес сервера)
 DATABASE_URL='postgresql+psycopg://user:pass@host:5432/stocklens' \
 MLFLOW_TRACKING_URI='http://localhost:5000' \
-  uv run --project ml python -m stocklens_ml.training.train_volatility \
+  uv run --project ml --extra train python -m stocklens_ml.training.train_volatility \
     --tickers SBER GAZP LKOH --n-splits 5 --mlflow-uri http://localhost:5000
 ```
 

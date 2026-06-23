@@ -174,17 +174,17 @@ jobs:
           python-version: "3.12"
 
       - name: uv sync
-        run: uv sync --project ml
+        run: uv sync --project ml --extra train
 
       - name: pytest (coverage >= 50%, integration в testcontainers)
         run: >
-          uv run --project ml
+          uv run --project ml --extra train
           pytest ml/tests
           --cov=stocklens_ml --cov-fail-under=50
 
       - name: mypy strict
         run: >
-          uv run --project ml
+          uv run --project ml --extra train
           mypy ml/src/stocklens_ml ml/tests
 
   build:

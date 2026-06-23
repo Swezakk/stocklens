@@ -3242,7 +3242,6 @@ dependencies = [
     { name = "pandas" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic-settings" },
-    { name = "scikit-learn" },
     { name = "scipy" },
     { name = "sqlalchemy" },
     { name = "statsmodels" },
@@ -3260,13 +3259,14 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.2" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3" },
     { name = "pydantic-settings", specifier = ">=2.5" },
-    { name = "scikit-learn", specifier = ">=1.5" },
+    { name = "scikit-learn", marker = "extra == 'train'", specifier = ">=1.5" },
     { name = "scipy", specifier = ">=1.14" },
     { name = "sqlalchemy", specifier = ">=2.0.50,<2.1" },
     { name = "statsmodels", specifier = ">=0.14" },
     { name = "stocklens-core", editable = "../../packages/stocklens-core" },
     { name = "structlog", specifier = ">=26" },
 ]
+provides-extras = ["train"]
 
 [package.metadata.requires-dev]
 dev = [

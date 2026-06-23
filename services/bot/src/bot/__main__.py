@@ -33,7 +33,7 @@ async def _heartbeat_loop(path: Path, interval: float) -> None:
 
 
 async def main() -> None:
-    """Запустить бота: логирование → Bot/Dispatcher → heartbeat → long-polling → graceful close."""
+    """Запустить бота: логирование → Bot → проверка связи → heartbeat → polling → close."""
     settings = get_settings()
     configure_logging(settings.log_pretty)
 
@@ -45,14 +45,25 @@ async def main() -> None:
     dispatcher.include_router(handlers.router)
     api_client = build_api_client(settings)
 
-    heartbeat = asyncio.create_task(
-        _heartbeat_loop(settings.heartbeat_path, _HEARTBEAT_INTERVAL_SECONDS)
-    )
-    _log.info("bot_starting", api_base_url=settings.api_base_url)
     try:
-        await dispatcher.start_polling(bot, api_client=api_client)
+        # Heartbeat стартует только ПОСЛЕ успешного get_me. Иначе healthcheck врёт: при
+        # недостижимом Telegram контейнер рестартует быстрее окна healthcheck и вечно
+        # числится healthy при crash-loop polling. Результат get_me кешируется в bot —
+        # start_polling переиспользует его без второго сетевого вызова.
+        identity = await bot.get_me()
+        _log.info(
+            "bot_starting",
+            username=identity.username,
+            api_base_url=settings.api_base_url,
+        )
+        heartbeat = asyncio.create_task(
+            _heartbeat_loop(settings.heartbeat_path, _HEARTBEAT_INTERVAL_SECONDS)
+        )
+        try:
+            await dispatcher.start_polling(bot, api_client=api_client)
+        finally:
+            heartbeat.cancel()
     finally:
-        heartbeat.cancel()
         await api_client.aclose()
         await bot.session.close()
 

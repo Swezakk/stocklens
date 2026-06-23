@@ -38,8 +38,14 @@
 | `REDIS_URL` | DSN Redis | `redis://redis:6379/0` |
 | `TICKERS_UNIVERSE` | стартовая вселенная тикеров | `IMOEX` |
 | `IMAGE_TAG` | тег образов GHCR | `latest` (или `sha-xxxxxxx` для пина) |
+| `AUTH_SECRET` | секрет подписи JWT (api) | `<openssl rand -base64 32>` |
+| `AUTH_OWNER_USERNAME` | имя владельца (api/dashboard/bot) | `admin` |
+| `AUTH_OWNER_PASSWORD` | пароль владельца (api; гейт дашборда; логин бота) | `<сильный пароль>` |
+| `TELEGRAM_BOT_TOKEN` | токен Telegram-бота от @BotFather (сервис `bot`) | `(секрет)` |
 
 Хосты `db`/`redis` — это имена сервисов из `docker-compose.prod.yml` (внутренняя сеть compose).
+Сервис `bot` (long-polling aiogram) потребляет `TELEGRAM_BOT_TOKEN` + `AUTH_OWNER_*`/`API_URL`
+(логин в API владельческими кредами); входящих портов не имеет.
 
 ## Фаза B — подготовка сервера (обратимо)
 

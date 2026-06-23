@@ -51,3 +51,15 @@ def test_har_raises_when_all_rows_invalid() -> None:
 
     with pytest.raises(ValueError, match="HAR-RV"):
         HarRvModel().fit(regressors, target)
+
+
+def test_har_coefficients_reproduce_prediction_as_plain_linear() -> None:
+    """Коэффициенты в порядке HAR_REGRESSORS: X @ coef + intercept == predict (для serving)."""
+    regressors = _regressors()
+    target = _linear_target(regressors)
+    model = HarRvModel().fit(regressors, target)
+
+    coef, intercept = model.coefficients()
+    manual = regressors[["rv_d", "rv_w", "rv_m"]].to_numpy() @ coef + intercept
+
+    assert np.allclose(manual, model.predict(regressors))

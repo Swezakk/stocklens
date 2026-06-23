@@ -34,3 +34,11 @@ class HarRvModel:
         """Прогноз дисперсии по регрессорам (строки должны быть без NaN)."""
         features = regressors[HAR_REGRESSORS].to_numpy(dtype=float)
         return np.asarray(self._model.predict(features), dtype=np.float64)
+
+    def coefficients(self) -> tuple[npt.NDArray[np.float64], float]:
+        """OLS-коэффициенты в порядке HAR_REGRESSORS и свободный член — для serving-обёртки.
+
+        Позволяет переносить обученную HAR в самодостаточный pyfunc-артефакт как
+        ``X @ coef + intercept`` (без зависимости serving-среды от sklearn).
+        """
+        return np.asarray(self._model.coef_, dtype=np.float64), float(self._model.intercept_)

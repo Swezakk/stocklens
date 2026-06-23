@@ -40,6 +40,9 @@ _DEFAULT_HORIZON = 5
 METHOD_GARCH = "garch"
 METHOD_HAR = "har_rv"
 
+#: Контракт входного фрейма serving (единый источник для API): доходности + HAR-регрессоры.
+SERVING_FEATURES = ["r", *_HAR_REGRESSORS]
+
 #: pip-зависимости serving-артефакта: инференс не требует stocklens_ml/sklearn/mlflow-extras.
 _SERVING_REQUIREMENTS = ["arch>=7.2", "numpy>=2.1", "pandas>=2.2"]
 #: Имя артефакта со state конкретной версии модели.

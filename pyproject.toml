@@ -88,6 +88,21 @@ module = [
     "pypfopt.*",
     "plotly",
     "plotly.*",
+    # ML-проект ml/: эконометрика/ML-библиотеки без py.typed/стабов.
+    "arch",
+    "arch.*",
+    "catboost",
+    "catboost.*",
+    "shap",
+    "shap.*",
+    "mlflow",
+    "mlflow.*",
+    "statsmodels",
+    "statsmodels.*",
+    "joblib",
+    "joblib.*",
+    "scipy",
+    "scipy.*",
 ]
 ignore_missing_imports = true
 

@@ -1,0 +1,44 @@
+[project]
+name = "stocklens-ml"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.1",
+    "pandas>=2.2",
+    "scipy>=1.14",
+    "arch>=7.2",
+    "statsmodels>=0.14",
+    "scikit-learn>=1.5",
+    # catboost и shap (модель тренда, поздняя фаза) добавляются в фазе тренда: shap тянет
+    # numba/llvmlite, конфликтующие с Python 3.12 + numpy 2.x — резолвится при добавлении.
+    "mlflow>=3.1,<4",
+    "sqlalchemy>=2.0.50,<2.1",
+    "psycopg[binary]>=3.3",
+    "pydantic-settings>=2.5",
+    "joblib>=1.4",
+    "structlog>=26",
+    # Security floor для транзитивной зависимости (через mlflow): msgpack<1.2.1 уязвим
+    # GHSA-6v7p-g79w-8964 (краш процесса при повторном Unpacker после ошибки).
+    "msgpack>=1.2.1",
+    "stocklens-core",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9",
+    "pytest-cov>=6",
+    "mypy>=2.1",
+]
+
+[tool.uv.sources]
+stocklens-core = { path = "../packages/stocklens-core", editable = true }
+
+[build-system]
+requires = ["uv_build"]
+build-backend = "uv_build"
+
+[tool.uv]
+package = true
+
+[tool.uv.build-backend]
+module-name = "stocklens_ml"

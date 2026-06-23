@@ -78,6 +78,55 @@ services:
     mem_limit: 1g
     restart: unless-stopped
 
+  mlflow-db-init:
+    # Идемпотентно создаёт БД mlflow на заполненном external-томе (initdb.d там не сработает —
+    # выполняется лишь при первой инициализации пустого тома). $$ экранирует подстановку compose.
+    image: postgres:16-alpine
+    entrypoint: ["sh", "-c"]
+    command:
+      - >
+        psql "$$DATABASE_ADMIN_URL" -tc "SELECT 1 FROM pg_database WHERE datname='mlflow'"
+        | grep -q 1 || psql "$$DATABASE_ADMIN_URL" -c "CREATE DATABASE mlflow"
+    environment:
+      DATABASE_ADMIN_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+    mem_limit: 256m
+    restart: "no"
+
+  mlflow:
+    # 7-й сервис (инвариант §4): tracking + реестр. Образ собран в CI (psycopg добавлен поверх
+    # официального mlflow). Наружу не публикуется — API ходит на http://mlflow:5000 внутри сети.
+    image: ghcr.io/swezakk/stocklens-mlflow:${IMAGE_TAG:-latest}
+    command: >
+      mlflow server
+      --backend-store-uri postgresql+psycopg://${DB_USER}:${DB_PASSWORD}@db:5432/mlflow
+      --artifacts-destination /mlflow/artifacts
+      --serve-artifacts
+      --host 0.0.0.0 --port 5000
+    volumes:
+      - mlflow_artifacts:/mlflow/artifacts
+    depends_on:
+      db:
+        condition: service_healthy
+      mlflow-db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/health')\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    expose:
+      - "5000"
+    mem_limit: 768m
+    restart: unless-stopped
+
   api:
     image: ghcr.io/swezakk/stocklens-api:${IMAGE_TAG:-latest}
     environment:
@@ -183,3 +232,8 @@ volumes:
   pgdata:
     external: true
     name: stocklens_pgdata
+  # Артефакты моделей MLflow — тоже external, чтобы пересборка/redeploy их не теряли
+  # (docker volume create stocklens_mlflow_artifacts до первого деплоя).
+  mlflow_artifacts:
+    external: true
+    name: stocklens_mlflow_artifacts

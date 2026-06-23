@@ -131,55 +131,38 @@ api/ml/
 
 ### 2.3. Сервис `mlflow` в Compose (7-й по инварианту)
 
-`docker-compose.yml` и `docker-compose.prod.yml`:
+Реализовано в [`docker-compose.yml`](../../docker-compose.yml) (dev: `build`) и
+[`docker-compose.prod.yml`](../../docker-compose.prod.yml) (prod: образ из GHCR). Ключевые
+решения (выверено сборкой и end-to-end-стартом против PostgreSQL):
 
-```yaml
-mlflow-db-init:                          # one-shot: идемпотентно создаёт БД mlflow
-  image: postgres:16
-  entrypoint: ["sh", "-c"]
-  command:
-    - >
-      psql "$DATABASE_ADMIN_URL" -tc "SELECT 1 FROM pg_database WHERE datname='mlflow'"
-      | grep -q 1 || psql "$DATABASE_ADMIN_URL" -c "CREATE DATABASE mlflow"
-  environment:
-    DATABASE_ADMIN_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/postgres
-  depends_on:
-    db: { condition: service_healthy }
-  restart: "no"
-
-mlflow:
-  image: ghcr.io/mlflow/mlflow:v3.1.4    # пин-версия; verified API соответствует 3.1.4
-  command: >
-    mlflow server
-    --backend-store-uri postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/mlflow
-    --artifacts-destination /mlflow/artifacts
-    --serve-artifacts
-    --host 0.0.0.0 --port 5000
-  volumes:
-    - mlflow_artifacts:/mlflow/artifacts
-  depends_on:
-    db: { condition: service_healthy }
-    mlflow-db-init: { condition: service_completed_successfully }
-  healthcheck:
-    test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5000/health').status==200 else 1)"]
-    interval: 15s
-    timeout: 5s
-    retries: 5
-```
-
-- **Bootstrap БД `mlflow` — через one-shot `mlflow-db-init`, НЕ через `initdb.d`.** Скрипты
+- **Кастомный тонкий образ [`services/mlflow/Dockerfile`](../../services/mlflow/Dockerfile),
+  НЕ официальный напрямую.** `ghcr.io/mlflow/mlflow` **не содержит драйвер PostgreSQL**
+  (mlflow/mlflow#9513) — без него сервер с `--backend-store-uri postgresql+psycopg://` не
+  стартует. Образ = `FROM ghcr.io/mlflow/mlflow:v3.14.0` + `pip install "psycopg[binary]"`.
+  Версия `v3.14.0` пинится **под версию клиента** в `ml/pyproject` (`mlflow>=3.1,<4` →
+  установлен 3.14.0), чтобы схема реестра совпадала. Prod тянет
+  `ghcr.io/swezakk/stocklens-mlflow` (сборка/публикация — в CI, job `publish`).
+- **Bootstrap БД `mlflow` — one-shot `mlflow-db-init`, НЕ `initdb.d`.** Скрипты
   `docker-entrypoint-initdb.d` Postgres выполняются **только при первой инициализации пустого
-  тома**; прод использует уже заполненный external-том `stocklens_pgdata`, поэтому init-скрипт
-  там **никогда не запустится**. `mlflow-db-init` идемпотентно создаёт БД на любом (в т.ч.
+  тома**; прод использует заполненный external-том `stocklens_pgdata`, поэтому init-скрипт там
+  **никогда не запустится**. `mlflow-db-init` идемпотентно создаёт БД на любом (в т.ч.
   существующем) томе и завершается; `mlflow` стартует после него
-  (`service_completed_successfully`).
-- Backend store — **отдельная БД `mlflow`** на том же сервисе `db`. Артефакты — том
-  `mlflow_artifacts`.
+  (`service_completed_successfully`). Сервер MLflow при старте сам создаёт таблицы схемы в
+  пустой БД `mlflow` (alembic-upgrade на backend store — проверено: 53 таблицы).
+- **Подстановка `$$` в команде `mlflow-db-init`.** `psql "$$DATABASE_ADMIN_URL"` — двойной `$`
+  экранирует интерполяцию compose, чтобы переменную раскрыл шелл контейнера (как в healthcheck
+  `$${POSTGRES_USER}`). `DATABASE_ADMIN_URL` строится из `${DB_USER}/${DB_PASSWORD}` (имена env
+  проекта), указывает на служебную БД `postgres`.
+- **Backend store — отдельная БД `mlflow`** на сервисе `db`; backend-URI собирается из
+  `${DB_USER}/${DB_PASSWORD}` на этапе compose. Артефакты — том `mlflow_artifacts`.
 - `--serve-artifacts`: API тянет артефакты модели через сервер MLflow по `models:/`-URI, без
-  прямого доступа к тому. API ходит в `http://mlflow:5000`.
-- **Healthcheck — реальный блок** (GET `/health`), а не комментарий: на него опирается smoke
-  §11.3.
-- Прод: том `mlflow_artifacts` — external (как `stocklens_pgdata`), не теряется при пересборке.
+  прямого доступа к тому. API ходит в `http://mlflow:5000` (внутренняя сеть; наружу prod не
+  публикует — только `expose`).
+- **Healthcheck — реальный GET `/health`** (на него опирается smoke §11.3). CI build-job
+  дополнительно проверяет наличие драйвера в образе:
+  `docker compose run --rm mlflow python -c "import psycopg, mlflow"`.
+- Прод: том `mlflow_artifacts` — external (как `stocklens_pgdata`), не теряется при пересборке;
+  на сервис задан `mem_limit` (mlflow 768m, db-init 256m).
 
 ---
 

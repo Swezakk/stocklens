@@ -46,6 +46,57 @@ services:
       retries: 5
     restart: unless-stopped
 
+  mlflow-db-init:
+    # Идемпотентно создаёт БД mlflow на сервисе db. НЕ через initdb.d: те скрипты
+    # выполняются только при первой инициализации пустого тома, а прод-том уже заполнен
+    # (см. docker-compose.prod.yml). $$ экранирует подстановку compose — переменную
+    # раскрывает шелл контейнера, не compose.
+    image: postgres:16-alpine
+    entrypoint: ["sh", "-c"]
+    command:
+      - >
+        psql "$$DATABASE_ADMIN_URL" -tc "SELECT 1 FROM pg_database WHERE datname='mlflow'"
+        | grep -q 1 || psql "$$DATABASE_ADMIN_URL" -c "CREATE DATABASE mlflow"
+    environment:
+      DATABASE_ADMIN_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  mlflow:
+    # 7-й сервис (инвариант §4): tracking + реестр моделей. Backend — отдельная БД mlflow на
+    # сервисе db; артефакты — том mlflow_artifacts; --serve-artifacts отдаёт их API по models:/.
+    build:
+      context: .
+      dockerfile: services/mlflow/Dockerfile
+    command: >
+      mlflow server
+      --backend-store-uri postgresql+psycopg://${DB_USER}:${DB_PASSWORD}@db:5432/mlflow
+      --artifacts-destination /mlflow/artifacts
+      --serve-artifacts
+      --host 0.0.0.0 --port 5000
+    volumes:
+      - mlflow_artifacts:/mlflow/artifacts
+    depends_on:
+      db:
+        condition: service_healthy
+      mlflow-db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/health')\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    ports:
+      - "127.0.0.1:5000:5000"
+    restart: unless-stopped
+
   api:
     build:
       context: .
@@ -163,3 +214,4 @@ services:
 
 volumes:
   pgdata:
+  mlflow_artifacts:

@@ -14,24 +14,21 @@ stocklens_ml.training.train_volatility --tickers SBER GAZP --mlflow-uri http://l
 import argparse
 from dataclasses import dataclass
 
-import mlflow
 import pandas as pd
 import structlog
-from mlflow import MlflowClient
 from mlflow.models.model import ModelInfo
 from sqlalchemy.orm import Session
 
+import mlflow
+from mlflow import MlflowClient
 from stocklens_ml.config import MlSettings
 from stocklens_ml.data import loader
 from stocklens_ml.eval import walk_forward
 from stocklens_ml.features import assemble
+from stocklens_ml.features.assemble import SERVING_FEATURES
 from stocklens_ml.models.har import HarRvModel
 from stocklens_ml.registry import promote
-from stocklens_ml.registry.pyfunc_volatility import (
-    METHOD_HAR,
-    SERVING_FEATURES,
-    log_volatility_model,
-)
+from stocklens_ml.registry.pyfunc_volatility import METHOD_HAR, log_volatility_model
 
 _log = structlog.get_logger(__name__)
 

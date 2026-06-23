@@ -18,6 +18,11 @@ from stocklens_ml.features import volatility
 FEATURE_COLUMNS = ["rv_d", "rv_w", "rv_m"]
 TARGET_COLUMN = "rv_target"
 
+#: Контракт входного фрейма serving (единый источник для train-input и API-инференса):
+#: доходность + HAR-регрессоры. Живёт здесь (чистый pandas, без arch), чтобы serving-слой
+#: импортировал его без зависимости от тяжёлого pyfunc-модуля.
+SERVING_FEATURES = ["r", *FEATURE_COLUMNS]
+
 
 def build_volatility_frame(
     candles: pd.DataFrame,

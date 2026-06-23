@@ -9,6 +9,8 @@ requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.18.4,<2",
     "psycopg[binary]>=3.3",
+    # Security floor транзитивной зависимости: msgpack<1.2.1 уязвим GHSA-6v7p-g79w-8964.
+    "msgpack>=1.2.1",
     "stocklens-core",
 ]
 

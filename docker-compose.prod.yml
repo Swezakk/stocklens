@@ -144,6 +144,13 @@ services:
 
   bot:
     image: ghcr.io/swezakk/stocklens-bot:${IMAGE_TAG:-latest}
+    # DNS этого VPS отравлен для Telegram: api.telegram.org резолвится в недостижимый отсюда
+    # DC 149.154.166.110 (connection timeout), тогда как канонический IP 149.154.167.220
+    # достижим (проверено getMe end-to-end). Пиннинг через /etc/hosts: aiohttp использует
+    # ThreadedResolver (aiodns в стеке нет), который читает /etc/hosts. Если Telegram сменит
+    # IP — обновить здесь; нездоровье сразу видно (heartbeat пишется только после get_me).
+    extra_hosts:
+      - "api.telegram.org:149.154.167.220"
     environment:
       # Бот — потребитель API по HTTP (§3); токен бота и пароль владельца — из env-стора Dokploy.
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}

@@ -8,13 +8,15 @@
 
 from pathlib import Path
 
-import mlflow
 import numpy as np
 import pandas as pd
 import pytest
 from stocklens_ml.models.garch import forecast_variance
+from stocklens_ml.models.har import HAR_REGRESSORS
 from stocklens_ml.registry import pyfunc_volatility
 from stocklens_ml.registry.pyfunc_volatility import VolatilityModel, log_volatility_model
+
+import mlflow
 
 
 def _returns_frame(n: int = 200, seed: int = 7) -> pd.DataFrame:
@@ -50,6 +52,12 @@ def test_har_branch_applies_linear_coefficients() -> None:
 
     expected = 0.002 * 0.5 + 0.0015 * 0.3 + 0.001 * 0.2 + intercept
     assert forecast[0] == pytest.approx(expected)
+
+
+def test_har_regressor_order_matches_model_module() -> None:
+    """Порядок HAR-регрессоров в serving-обёртке == в модели: иначе пулинговые коэффициенты
+    (фитятся по HAR_REGRESSORS) применятся к не тем колонкам в _forecast_har."""
+    assert pyfunc_volatility._HAR_REGRESSORS == HAR_REGRESSORS
 
 
 def test_module_has_no_stocklens_ml_import() -> None:

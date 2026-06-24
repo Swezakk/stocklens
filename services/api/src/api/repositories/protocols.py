@@ -141,6 +141,17 @@ class PredictionRepository(Protocol):
         """Создать/обновить прогноз по натуральному ключу. Коммитит транзакцию."""
         ...
 
+    async def list_values(
+        self,
+        security_id: int,
+        kind: PredictionKind,
+        model_version: str,
+        date_from: date,
+        date_to: date,
+    ) -> dict[date, float]:
+        """Сохранённые значения прогнозов {predicted_for: value} за диапазон дат."""
+        ...
+
 
 class MonitoringRepository(Protocol):
     """Чтение журнала запусков сборщиков."""

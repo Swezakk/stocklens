@@ -19,6 +19,8 @@ from api.core.exceptions import (
 )
 from api.core.settings import ApiSettings
 from api.ml.bundle import LoadedVolatilityModel, ModelBundle
+from api.ml.features import build_serving_frame
+from api.schemas.predict import VolatilityForecastHistoryOut
 from api.services.prediction import MIN_REGIME_OBSERVATIONS, PredictionService, _Forecast
 from stocklens_core.enums import PredictionKind
 from stocklens_core.models.market import Security
@@ -104,6 +106,7 @@ class _FakeFeatureRepo:
 class _FakePredictionRepo:
     cached: float | None = None
     upserts: list[tuple[int, date, int, PredictionKind, float, str]] = field(default_factory=list)
+    list_values_result: dict[date, float] = field(default_factory=dict)
 
     async def get_value(
         self,
@@ -125,6 +128,16 @@ class _FakePredictionRepo:
         model_version: str,
     ) -> None:
         self.upserts.append((security_id, predicted_for, horizon_days, kind, value, model_version))
+
+    async def list_values(
+        self,
+        security_id: int,
+        kind: PredictionKind,
+        model_version: str,
+        date_from: date,
+        date_to: date,
+    ) -> dict[date, float]:
+        return {d: v for d, v in self.list_values_result.items() if date_from <= d <= date_to}
 
 
 def _bundle(predictor: _StubPredictor) -> ModelBundle:
@@ -293,3 +306,78 @@ async def test_assess_volatility_regime_raises_insufficient_history_when_few_rv_
         await service.assess_volatility_regime("SBER", quantile=0.80, lookback=252)
 
     assert exc_info.value.available < MIN_REGIME_OBSERVATIONS
+
+
+async def test_forecast_history_raises_404_for_unknown_ticker() -> None:
+    """forecast_history: тикер не найден → SecurityNotFoundError (404)."""
+    service, _, _ = _service(security=None)
+
+    with pytest.raises(SecurityNotFoundError):
+        await service.forecast_history("UNKNOWN", lookback=90)
+
+
+async def test_forecast_history_returns_realized_and_forecast_points() -> None:
+    """forecast_history: realized = sqrt(rv_target); forecast = значение из prediction_repo."""
+    candles = _candles(160)
+    frame = build_serving_frame(
+        candles,
+        _empty_dividends(),
+        _empty_splits(),
+        train_start=_settings().ml_train_start,
+        horizon=5,
+    )
+    frame_dates = [pd.Timestamp(d).date() for d in frame["trade_date"].tolist()]
+    # Берём дату внутри lookback-окна (последние 90 дат)
+    window_dates = frame_dates[-90:]
+    seed_date = window_dates[40]
+
+    repo = _FakePredictionRepo(list_values_result={seed_date: 0.05})
+    service, _, _ = _service(security=_security(), candles=candles, prediction_repo=repo)
+
+    result: VolatilityForecastHistoryOut = await service.forecast_history("SBER", lookback=90)
+
+    assert result.ticker == "SBER"
+    assert result.model == "garch"
+    assert result.model_version == "3"
+    assert result.metrics_vs_baseline is not None
+
+    realized_points = [p for p in result.points if p.realized is not None]
+    assert len(realized_points) > 0, "Ожидались точки с realized"
+
+    forecast_points = [p for p in result.points if p.forecast is not None]
+    assert len(forecast_points) == 1
+    assert forecast_points[0].date == seed_date
+    assert forecast_points[0].forecast == pytest.approx(0.05)
+
+
+async def test_forecast_history_no_model_returns_realized_without_forecast() -> None:
+    """forecast_history: bundle без модели → metrics=None, model=None, forecast пустой."""
+    service, _, _ = _service(
+        security=_security(),
+        candles=_candles(160),
+        bundle=ModelBundle(volatility=None),
+    )
+
+    result = await service.forecast_history("SBER", lookback=90)
+
+    assert result.model is None
+    assert result.model_version is None
+    assert result.metrics_vs_baseline is None
+    realized_points = [p for p in result.points if p.realized is not None]
+    assert len(realized_points) > 0, "Ожидались realized-точки даже без модели"
+    assert all(p.forecast is None for p in result.points)
+
+
+async def test_forecast_history_empty_candles_returns_empty_points() -> None:
+    """forecast_history: пустые свечи → points=[], без ошибок."""
+    service, _, _ = _service(
+        security=_security(),
+        candles=pd.DataFrame(
+            columns=["trade_date", "open", "high", "low", "close", "volume", "is_weekend_session"]
+        ),
+    )
+
+    result = await service.forecast_history("SBER", lookback=90)
+
+    assert result.points == []
+    assert result.ticker == "SBER"

@@ -1,4 +1,4 @@
-"""DTO ML-прогнозов (ml-spec §8.3). Строго отделены от ORM-моделей."""
+"""DTO ML-прогнозов (ml-spec §8.3, §10). Строго отделены от ORM-моделей."""
 
 from datetime import date
 
@@ -41,6 +41,29 @@ class VolatilityPredictionOut(BaseModel):
     model: str
     model_version: str
     metrics_vs_baseline: VolatilityMetrics
+
+
+class VolatilityForecastPoint(BaseModel):
+    """Одна точка ряда «прогноз vs реализованная волатильность» (ml-spec §10)."""
+
+    date: date
+    forecast: float | None = None
+    realized: float | None = None
+
+
+class VolatilityForecastHistoryOut(BaseModel):
+    """История прогнозов волатильности с реализованными значениями для графика (ml-spec §10).
+
+    ``protected_namespaces=()`` — поле ``model`` конфликтует с защищённым неймспейсом Pydantic v2.
+    """
+
+    model_config = {"protected_namespaces": ()}
+
+    ticker: str
+    model: str | None
+    model_version: str | None
+    metrics_vs_baseline: VolatilityMetrics | None
+    points: list[VolatilityForecastPoint]
 
 
 class VolatilityRegime(BaseModel):

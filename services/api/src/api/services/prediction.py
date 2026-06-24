@@ -29,11 +29,21 @@ from api.repositories.protocols import (
     SecurityRepository,
     VolatilityFeatureRepository,
 )
-from api.schemas.predict import VolatilityMetrics, VolatilityPredictionOut, VolatilityRegime
+from api.schemas.predict import (
+    VolatilityForecastHistoryOut,
+    VolatilityForecastPoint,
+    VolatilityMetrics,
+    VolatilityPredictionOut,
+    VolatilityRegime,
+)
 
 #: Минимум ненулевых значений rv_target для устойчивой оценки режима волатильности.
 #: Ниже 60 распределение слишком бедно для осмысленного 0.80-квантиля.
 MIN_REGIME_OBSERVATIONS = 60
+
+#: Горизонт прогноза по умолчанию (дни) — используется когда модель не загружена,
+#: чтобы build_serving_frame мог рассчитать rv_target (forward-window).
+_DEFAULT_HORIZON_DAYS = 5
 
 
 @dataclass(frozen=True)
@@ -111,6 +121,66 @@ class PredictionService:
             lookback=lookback,
         )
 
+    async def forecast_history(self, ticker: str, lookback: int) -> VolatilityForecastHistoryOut:
+        """История прогнозов волатильности vs реализованных значений (ml-spec §10).
+
+        Читает сохранённые прогнозы из ``predictions`` и объединяет их с реализованной
+        волатильностью (``sqrt(rv_target)``) из feature-фрейма — тот же показатель,
+        который таргетирует модель. Не поднимает ошибок при отсутствии модели или
+        нехватке истории: возвращает пустые points.
+        """
+        normalized = ticker.strip().upper()
+        security = await self._security_repo.get_by_ticker(normalized)
+        if security is None:
+            raise SecurityNotFoundError(normalized)
+
+        model = self._bundle.volatility
+        horizon = model.horizon_days if model is not None else _DEFAULT_HORIZON_DAYS
+
+        frame = build_serving_frame(
+            await self._feature_repo.load_candles(security.id),
+            await self._feature_repo.load_dividends(security.id),
+            await self._feature_repo.load_splits(security.id),
+            train_start=self._settings.ml_train_start,
+            horizon=horizon,
+        )
+
+        model_name, model_version, metrics = _extract_model_meta(model)
+
+        if frame.empty:
+            return VolatilityForecastHistoryOut(
+                ticker=security.ticker,
+                model=model_name,
+                model_version=model_version,
+                metrics_vs_baseline=metrics,
+                points=[],
+            )
+
+        all_dates: list[date] = [pd.Timestamp(d).date() for d in frame["trade_date"].tolist()]
+        window_dates = all_dates[-lookback:]
+        date_from = window_dates[0]
+        date_to = window_dates[-1]
+
+        realized_by_date = _build_realized_map(frame, all_dates)
+
+        forecasts_by_date: dict[date, float]
+        if model is not None and model_version is not None:
+            forecasts_by_date = await self._prediction_repo.list_values(
+                security.id, PredictionKind.VOLATILITY, model_version, date_from, date_to
+            )
+        else:
+            forecasts_by_date = {}
+
+        points = _join_forecast_points(window_dates, forecasts_by_date, realized_by_date)
+
+        return VolatilityForecastHistoryOut(
+            ticker=security.ticker,
+            model=model_name,
+            model_version=model_version,
+            metrics_vs_baseline=metrics,
+            points=points,
+        )
+
     async def _forecast(self, ticker: str) -> _Forecast:
         """Общий пайплайн: резолв тикера → фичи → read-through кэш/инференс → уpsert.
 
@@ -167,3 +237,47 @@ class PredictionService:
             volatility=volatility,
             model=model,
         )
+
+
+def _extract_model_meta(
+    model: LoadedVolatilityModel | None,
+) -> tuple[str | None, str | None, VolatilityMetrics | None]:
+    """Извлечь имя, версию и метрики из загруженной модели (или None при отсутствии)."""
+    if model is None:
+        return None, None, None
+    return (
+        model.method,
+        model.model_version,
+        VolatilityMetrics(
+            qlike=model.metrics["qlike"],
+            qlike_baseline=model.metrics["qlike_baseline"],
+            rmse=model.metrics["rmse"],
+        ),
+    )
+
+
+def _build_realized_map(frame: pd.DataFrame, all_dates: list[date]) -> dict[date, float]:
+    """Построить {trade_date: sqrt(rv_target)} для строк с ненулевым rv_target."""
+    realized: dict[date, float] = {}
+    rv_col = frame["rv_target"].to_numpy(dtype=float)
+    for i, d in enumerate(all_dates):
+        val = rv_col[i]
+        if not np.isnan(val):
+            realized[d] = float(np.sqrt(val))
+    return realized
+
+
+def _join_forecast_points(
+    window_dates: list[date],
+    forecasts_by_date: dict[date, float],
+    realized_by_date: dict[date, float],
+) -> list[VolatilityForecastPoint]:
+    """Объединить прогнозы и реализованные значения в список точек, исключая пустые."""
+    all_dates_in_window = sorted(set(window_dates) | set(forecasts_by_date))
+    points: list[VolatilityForecastPoint] = []
+    for d in all_dates_in_window:
+        forecast = forecasts_by_date.get(d)
+        realized = realized_by_date.get(d)
+        if forecast is not None or realized is not None:
+            points.append(VolatilityForecastPoint(date=d, forecast=forecast, realized=realized))
+    return points

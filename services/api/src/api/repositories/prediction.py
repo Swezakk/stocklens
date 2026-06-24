@@ -43,6 +43,26 @@ class SqlPredictionRepository:
         value = result.scalar_one_or_none()
         return None if value is None else float(value)
 
+    async def list_values(
+        self,
+        security_id: int,
+        kind: PredictionKind,
+        model_version: str,
+        date_from: date,
+        date_to: date,
+    ) -> dict[date, float]:
+        """Сохранённые значения прогнозов {predicted_for: value} за диапазон дат."""
+        result = await self._session.execute(
+            select(Prediction.predicted_for, Prediction.value).where(
+                Prediction.security_id == security_id,
+                Prediction.kind == kind,
+                Prediction.model_version == model_version,
+                Prediction.predicted_for >= date_from,
+                Prediction.predicted_for <= date_to,
+            )
+        )
+        return {row.predicted_for: float(row.value) for row in result}
+
     async def upsert(
         self,
         security_id: int,

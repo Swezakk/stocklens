@@ -1,7 +1,6 @@
 """Сервис оценки алертов: определяет, какие подписки сработали с момента последней проверки.
 
-Поддерживаемые виды: price_level, sentiment_spike, dividend_upcoming.
-Volatility_regime не реализован (отложен до появления ML-слоя) и явно пропускается.
+Поддерживаемые виды: price_level, sentiment_spike, dividend_upcoming, volatility_regime.
 """
 
 from collections.abc import Callable
@@ -15,8 +14,10 @@ from stocklens_core.models.market import Dividend
 from stocklens_core.models.news import NewsArticle, NewsSentiment
 
 from api.core.cache import AlertNxStore
+from api.core.exceptions import InsufficientHistoryError, ModelNotLoadedError
 from api.repositories.protocols import BotSubscriptionRepository, SecurityRepository
 from api.schemas.bot import DIVIDEND_LEAD_DAYS_DEFAULT, PendingAlertOut
+from api.schemas.predict import VolatilityRegime
 
 logger = structlog.get_logger(__name__)
 
@@ -25,6 +26,7 @@ TodayProvider = Callable[[], date]
 _DEDUP_TTL_PRICE_SECONDS = 86_400
 _DEDUP_TTL_SENTIMENT_SECONDS = 259_200
 _DEDUP_TTL_DIGEST_SECONDS = 72_000
+_DEDUP_TTL_VOLATILITY_SECONDS = 86_400
 
 _MIN_CLOSES_FOR_LEVEL_CHECK = 2
 
@@ -62,6 +64,16 @@ class DividendAlertRepository(Protocol):
         ...
 
 
+class VolatilityRegimeAssessor(Protocol):
+    """Оценщик режима волатильности для volatility_regime алертов."""
+
+    async def assess_volatility_regime(
+        self, ticker: str, quantile: float, lookback: int
+    ) -> VolatilityRegime:
+        """Вернуть оценку режима волатильности по тикеру."""
+        ...
+
+
 class AlertEvaluationService:
     """Оценивает все активные подписки и возвращает список сработавших алертов.
 
@@ -78,6 +90,9 @@ class AlertEvaluationService:
         dividend_repo: DividendAlertRepository,
         redis: AlertNxStore,
         today: TodayProvider,
+        assessor: VolatilityRegimeAssessor | None = None,
+        volatility_quantile: float = 0.80,
+        volatility_lookback: int = 252,
     ) -> None:
         self._bot_repo = bot_repo
         self._security_repo = security_repo
@@ -86,19 +101,22 @@ class AlertEvaluationService:
         self._dividend_repo = dividend_repo
         self._redis = redis
         self._today = today
+        self._assessor = assessor
+        self._volatility_quantile = volatility_quantile
+        self._volatility_lookback = volatility_lookback
 
     async def collect_pending(self) -> list[PendingAlertOut]:
         """Оценить все активные подписки и вернуть список сработавших алертов.
 
-        Подписки с типом VOLATILITY_REGIME пропускаются. Подписки с тикером,
-        не найденным в БД, логируются как предупреждение и пропускаются.
+        Подписки с тикером, не найденным в БД, логируются как предупреждение и пропускаются.
+        Volatility_regime пропускается, если assessor не передан (ML-слой не сконфигурирован).
         """
         today = self._today()
         subscriptions = await self._bot_repo.list_all_active()
         pending: list[PendingAlertOut] = []
 
         for sub in subscriptions:
-            if sub.kind == AlertKind.VOLATILITY_REGIME:
+            if sub.kind == AlertKind.VOLATILITY_REGIME and self._assessor is None:
                 continue
 
             raw_ticker = sub.params.get("ticker")
@@ -130,6 +148,10 @@ class AlertEvaluationService:
                 alerts = await self._evaluate_sentiment_spike(sub.chat_id, raw_ticker, sid, today)
             elif sub.kind == AlertKind.DIVIDEND_UPCOMING:
                 alerts = await self._evaluate_dividend_upcoming(
+                    sub.chat_id, raw_ticker, sid, sub.params, today
+                )
+            elif sub.kind == AlertKind.VOLATILITY_REGIME:
+                alerts = await self._evaluate_volatility_regime(
                     sub.chat_id, raw_ticker, sid, sub.params, today
                 )
 
@@ -251,3 +273,51 @@ class AlertEvaluationService:
             )
 
         return alerts
+
+    async def _evaluate_volatility_regime(
+        self,
+        chat_id: int,
+        ticker: str,
+        security_id: int,
+        params: dict[str, object],
+        today: date,
+    ) -> list[PendingAlertOut]:
+        assert self._assessor is not None  # гарантировано caller'ом в collect_pending
+
+        raw_quantile = params.get("quantile", self._volatility_quantile)
+        quantile = (
+            float(raw_quantile)
+            if isinstance(raw_quantile, int | float)
+            else self._volatility_quantile
+        )
+
+        raw_lookback = params.get("lookback", self._volatility_lookback)
+        lookback = int(raw_lookback) if isinstance(raw_lookback, int) else self._volatility_lookback
+
+        try:
+            regime = await self._assessor.assess_volatility_regime(ticker, quantile, lookback)
+        except (ModelNotLoadedError, InsufficientHistoryError) as exc:
+            logger.warning(
+                "volatility_regime_skipped",
+                ticker=ticker,
+                reason=str(exc),
+            )
+            return []
+
+        if not regime.is_elevated:
+            return []
+
+        key = f"alert:vol:{chat_id}:{ticker}:{today.isoformat()}"
+        if not await self._redis.set_nx(key, _DEDUP_TTL_VOLATILITY_SECONDS):
+            return []
+
+        return [
+            PendingAlertOut(
+                chat_id=chat_id,
+                kind=AlertKind.VOLATILITY_REGIME,
+                ticker=ticker,
+                volatility=regime.volatility,
+                threshold=regime.threshold,
+                regime_quantile=regime.quantile,
+            )
+        ]

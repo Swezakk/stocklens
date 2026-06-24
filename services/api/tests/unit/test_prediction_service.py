@@ -19,7 +19,7 @@ from api.core.exceptions import (
 )
 from api.core.settings import ApiSettings
 from api.ml.bundle import LoadedVolatilityModel, ModelBundle
-from api.services.prediction import PredictionService
+from api.services.prediction import MIN_REGIME_OBSERVATIONS, PredictionService, _Forecast
 from stocklens_core.enums import PredictionKind
 from stocklens_core.models.market import Security
 
@@ -210,3 +210,86 @@ async def test_predict_volatility_uses_cache_and_skips_refit_on_repeat() -> None
     assert result.volatility == pytest.approx(cached)
     assert predictor.calls == 0  # read-through кэш: модель не вызывается
     assert repo_out.upserts == []  # повторная запись не создаётся
+
+
+async def test_assess_volatility_regime_returns_503_when_model_not_loaded() -> None:
+    """assess_volatility_regime: bundle.volatility=None → ModelNotLoadedError."""
+    service, _, _ = _service(security=_security(), bundle=ModelBundle(volatility=None))
+
+    with pytest.raises(ModelNotLoadedError):
+        await service.assess_volatility_regime("SBER", quantile=0.80, lookback=252)
+
+
+async def test_assess_volatility_regime_is_elevated_true_when_forecast_exceeds_quantile() -> None:
+    """assess_volatility_regime: прогноз выше 0.80-квантиля реализованных → is_elevated=True."""
+    # sqrt(0.09) = 0.3 — высокая волатильность; исторические rv_target будут ≈0.01 (small),
+    # поэтому 0.80-квантиль << 0.3.
+    high_variance = 0.09
+    predictor = _StubPredictor(variance=high_variance)
+    service, _, _ = _service(security=_security(), candles=_candles(160), predictor=predictor)
+
+    result = await service.assess_volatility_regime("SBER", quantile=0.80, lookback=252)
+
+    assert result.is_elevated is True
+    assert result.volatility == pytest.approx(np.sqrt(high_variance))
+    assert result.quantile == pytest.approx(0.80)
+    assert result.ticker == "SBER"
+
+
+async def test_assess_volatility_regime_is_elevated_false_when_forecast_below_quantile() -> None:
+    """assess_volatility_regime: прогноз ниже 0.01-квантиля реализованных → is_elevated=False."""
+    # При quantile=0.01 порог будет очень маленьким, но мы используем очень маленькую дисперсию.
+    # Безопаснее: quantile=0.99 — порог = 99%-квантиль реализованных, прогноз ниже.
+    tiny_variance = 1e-12
+    predictor = _StubPredictor(variance=tiny_variance)
+    service, _, _ = _service(security=_security(), candles=_candles(160), predictor=predictor)
+
+    result = await service.assess_volatility_regime("SBER", quantile=0.99, lookback=252)
+
+    assert result.is_elevated is False
+    assert result.volatility == pytest.approx(np.sqrt(tiny_variance))
+
+
+async def test_assess_volatility_regime_raises_insufficient_history_when_few_rv_target() -> None:
+    """assess_volatility_regime: менее MIN_REGIME_OBSERVATIONS rv_target → InsufficientHistoryError.
+
+    rv_target forward-looking — при 160 свечах ≈156 ненулевых rv_target, хорошо выше 60.
+    Чтобы изолированно проверить 60-gate (не 100-gate по r), подменяем _forecast через
+    подкласс: возвращаем синтетический frame с достаточно r, но только 5 ненулевых rv_target.
+    """
+
+    class _StubPredictionService(PredictionService):
+        async def _forecast(self, ticker: str) -> _Forecast:
+            n = 160
+            rng = np.random.default_rng(42)
+            rv = np.full(n, np.nan)
+            rv[-5:] = rng.uniform(0.001, 0.01, 5)
+            frame = pd.DataFrame(
+                {
+                    "trade_date": pd.bdate_range(start=date(2022, 6, 1), periods=n).date,
+                    "r": np.random.default_rng(1).normal(0, 0.01, n),
+                    "rv_target": rv,
+                }
+            )
+            loaded = _bundle(_StubPredictor()).volatility
+            assert loaded is not None
+            return _Forecast(
+                security=_security(),
+                frame=frame,
+                predicted_for=date(2024, 1, 2),
+                volatility=0.03,
+                model=loaded,
+            )
+
+    service = _StubPredictionService(
+        security_repo=_FakeSecurityRepo(_security()),
+        feature_repo=_FakeFeatureRepo(_candles(160)),
+        prediction_repo=_FakePredictionRepo(),
+        bundle=_bundle(_StubPredictor()),
+        settings=_settings(),
+    )
+
+    with pytest.raises(InsufficientHistoryError) as exc_info:
+        await service.assess_volatility_regime("SBER", quantile=0.80, lookback=252)
+
+    assert exc_info.value.available < MIN_REGIME_OBSERVATIONS

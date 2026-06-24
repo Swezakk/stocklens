@@ -21,7 +21,9 @@ class SubscriptionIn(BaseModel):
             "Параметры алерта. Обязательные ключи по типам: "
             "price_level — 'ticker' (str) и 'level' (float > 0); "
             "sentiment_spike — 'ticker' (str); "
-            "dividend_upcoming — 'ticker' (str) и опционально 'lead_days' (int 1..30, default 3)."
+            "dividend_upcoming — 'ticker' (str) и опционально 'lead_days' (int 1..30, default 3); "
+            "volatility_regime — 'ticker' (str), опционально 'quantile' (float 0.5..0.99) "
+            "и 'lookback' (int 60..1000)."
         ),
     )
 
@@ -45,6 +47,7 @@ class PendingAlertOut(BaseModel):
     - price_level:        level, close (последний close)
     - sentiment_spike:    article_id, article_title, article_url, article_published_at
     - dividend_upcoming:  ex_date, dividend_value, dividend_currency
+    - volatility_regime:  volatility, threshold, regime_quantile
     """
 
     chat_id: int = Field(description="Telegram chat_id получателя")
@@ -67,6 +70,14 @@ class PendingAlertOut(BaseModel):
     )
     dividend_currency: Currency | None = Field(
         default=None, description="dividend_upcoming: валюта дивиденда"
+    )
+
+    volatility: float | None = Field(
+        default=None, description="volatility_regime: прогнозная волатильность"
+    )
+    threshold: float | None = Field(default=None, description="volatility_regime: порог квантиля")
+    regime_quantile: float | None = Field(
+        default=None, description="volatility_regime: использованный квантиль"
     )
 
 

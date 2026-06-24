@@ -1,4 +1,4 @@
-"""Сервис ML-прогнозов: волатильность (ml-spec §8.3, §8.4).
+"""Сервис ML-прогнозов: волатильность (ml-spec §8.3, §8.4, §9).
 
 Оркестрирует: резолв тикера → загрузка истории → сборка фич (единый код с обучением) →
 инференс волатильности в threadpool (CPU-bound рефит GARCH не блокирует event-loop) →
@@ -7,10 +7,14 @@
 """
 
 import math
+from dataclasses import dataclass
+from datetime import date
 
+import numpy as np
 import pandas as pd
 from starlette.concurrency import run_in_threadpool
 from stocklens_core.enums import PredictionKind
+from stocklens_core.models.market import Security
 
 from api.core.exceptions import (
     InsufficientHistoryError,
@@ -18,14 +22,29 @@ from api.core.exceptions import (
     SecurityNotFoundError,
 )
 from api.core.settings import ApiSettings
-from api.ml.bundle import ModelBundle
+from api.ml.bundle import LoadedVolatilityModel, ModelBundle
 from api.ml.features import MIN_VOLATILITY_HISTORY, SERVING_FEATURES, build_serving_frame
 from api.repositories.protocols import (
     PredictionRepository,
     SecurityRepository,
     VolatilityFeatureRepository,
 )
-from api.schemas.predict import VolatilityMetrics, VolatilityPredictionOut
+from api.schemas.predict import VolatilityMetrics, VolatilityPredictionOut, VolatilityRegime
+
+#: Минимум ненулевых значений rv_target для устойчивой оценки режима волатильности.
+#: Ниже 60 распределение слишком бедно для осмысленного 0.80-квантиля.
+MIN_REGIME_OBSERVATIONS = 60
+
+
+@dataclass(frozen=True)
+class _Forecast:
+    """Результат внутреннего пайплайна инференса волатильности."""
+
+    security: Security
+    frame: pd.DataFrame
+    predicted_for: date
+    volatility: float
+    model: LoadedVolatilityModel
 
 
 class PredictionService:
@@ -48,6 +67,58 @@ class PredictionService:
 
     async def predict_volatility(self, ticker: str) -> VolatilityPredictionOut:
         """Прогноз 5-дневной волатильности по тикеру (sqrt прогноза дисперсии)."""
+        result = await self._forecast(ticker)
+        return VolatilityPredictionOut(
+            ticker=result.security.ticker,
+            predicted_for=result.predicted_for,
+            horizon_days=result.model.horizon_days,
+            volatility=result.volatility,
+            model=result.model.method,
+            model_version=result.model.model_version,
+            metrics_vs_baseline=VolatilityMetrics(
+                qlike=result.model.metrics["qlike"],
+                qlike_baseline=result.model.metrics["qlike_baseline"],
+                rmse=result.model.metrics["rmse"],
+            ),
+        )
+
+    async def assess_volatility_regime(
+        self, ticker: str, quantile: float, lookback: int
+    ) -> VolatilityRegime:
+        """Оценить режим волатильности: прогноз vs исторический квантиль (ml-spec §9).
+
+        Raises:
+            ModelNotLoadedError: модель волатильности не загружена из реестра.
+            SecurityNotFoundError: тикер не найден в БД.
+            InsufficientHistoryError: менее MIN_VOLATILITY_HISTORY валидных r
+                или менее MIN_REGIME_OBSERVATIONS ненулевых rv_target.
+        """
+        result = await self._forecast(ticker)
+
+        realized = np.sqrt(result.frame["rv_target"].dropna().to_numpy(dtype=float))
+        if len(realized) < MIN_REGIME_OBSERVATIONS:
+            raise InsufficientHistoryError(ticker, len(realized), MIN_REGIME_OBSERVATIONS)
+
+        trailing = realized[-lookback:]
+        threshold = float(np.quantile(trailing, quantile))
+        return VolatilityRegime(
+            ticker=result.security.ticker,
+            predicted_for=result.predicted_for,
+            volatility=result.volatility,
+            threshold=threshold,
+            is_elevated=result.volatility > threshold,
+            quantile=quantile,
+            lookback=lookback,
+        )
+
+    async def _forecast(self, ticker: str) -> _Forecast:
+        """Общий пайплайн: резолв тикера → фичи → read-through кэш/инференс → уpsert.
+
+        Raises:
+            ModelNotLoadedError: если bundle.volatility is None.
+            SecurityNotFoundError: если тикер не найден в БД.
+            InsufficientHistoryError: если валидных r < MIN_VOLATILITY_HISTORY.
+        """
         model = self._bundle.volatility
         if model is None:
             raise ModelNotLoadedError(self._settings.ml_volatility_model)
@@ -89,16 +160,10 @@ class PredictionService:
                 model.model_version,
             )
 
-        return VolatilityPredictionOut(
-            ticker=security.ticker,
+        return _Forecast(
+            security=security,
+            frame=frame,
             predicted_for=predicted_for,
-            horizon_days=model.horizon_days,
             volatility=volatility,
-            model=model.method,
-            model_version=model.model_version,
-            metrics_vs_baseline=VolatilityMetrics(
-                qlike=model.metrics["qlike"],
-                qlike_baseline=model.metrics["qlike_baseline"],
-                rmse=model.metrics["rmse"],
-            ),
+            model=model,
         )

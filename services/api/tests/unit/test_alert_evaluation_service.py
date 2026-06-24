@@ -7,15 +7,22 @@ from typing import cast
 
 import pytest
 from api.core.cache import AlertNxStore
-from api.core.exceptions import InsufficientDataError, InvalidAlertParamsError
+from api.core.exceptions import (
+    InsufficientDataError,
+    InsufficientHistoryError,
+    InvalidAlertParamsError,
+    ModelNotLoadedError,
+)
 from api.repositories.protocols import BotSubscriptionRepository, SecurityRepository
 from api.schemas.bot import SubscriptionIn
+from api.schemas.predict import VolatilityRegime
 from api.services.alert_evaluation import (
     AlertEvaluationService,
     CloseRepository,
     DividendAlertRepository,
     NewsAlertRepository,
     TodayProvider,
+    VolatilityRegimeAssessor,
 )
 from api.services.bot import BotSubscriptionService
 from stocklens_core.enums import AlertKind, Currency, SentimentLabel
@@ -236,6 +243,45 @@ def _fixed_today() -> date:
     return _TODAY
 
 
+class _FakeAssessor:
+    """Фейк VolatilityRegimeAssessor: заданный VolatilityRegime или исключение."""
+
+    def __init__(
+        self,
+        regime: VolatilityRegime | None = None,
+        raises: Exception | None = None,
+    ) -> None:
+        self._regime = regime
+        self._raises = raises
+        self.calls = 0
+
+    async def assess_volatility_regime(
+        self, ticker: str, quantile: float, lookback: int
+    ) -> VolatilityRegime:
+        self.calls += 1
+        if self._raises is not None:
+            raise self._raises
+        assert self._regime is not None
+        return self._regime
+
+
+def _fake_regime(
+    ticker: str = "SBER",
+    volatility: float = 0.05,
+    threshold: float = 0.03,
+    is_elevated: bool = True,
+) -> VolatilityRegime:
+    return VolatilityRegime(
+        ticker=ticker,
+        predicted_for=_TODAY,
+        volatility=volatility,
+        threshold=threshold,
+        is_elevated=is_elevated,
+        quantile=0.80,
+        lookback=252,
+    )
+
+
 def _eval_service(
     subs: list[BotSubscription],
     securities: dict[str, Security] | None = None,
@@ -244,6 +290,9 @@ def _eval_service(
     dividends: dict[int, list[Dividend]] | None = None,
     redis: FakeRedis | None = None,
     today: TodayProvider | None = None,
+    assessor: VolatilityRegimeAssessor | None = None,
+    volatility_quantile: float = 0.80,
+    volatility_lookback: int = 252,
 ) -> AlertEvaluationService:
     return AlertEvaluationService(
         bot_repo=cast(BotSubscriptionRepository, FakeBotRepo(subs)),
@@ -253,6 +302,9 @@ def _eval_service(
         dividend_repo=cast(DividendAlertRepository, _FakeDividendRepo(dividends)),
         redis=cast(AlertNxStore, redis or FakeRedis()),
         today=today or _fixed_today,
+        assessor=cast(VolatilityRegimeAssessor, assessor),
+        volatility_quantile=volatility_quantile,
+        volatility_lookback=volatility_lookback,
     )
 
 
@@ -583,8 +635,8 @@ async def test_collect_pending_skips_unknown_ticker_subscription() -> None:
     assert result == []
 
 
-async def test_collect_pending_skips_volatility_regime_subscription() -> None:
-    """collect_pending: volatility_regime всегда пропускается (отложено до ML)."""
+async def test_collect_pending_skips_volatility_regime_when_assessor_not_configured() -> None:
+    """collect_pending: volatility_regime пропускается когда assessor=None."""
     sber = _fake_security("SBER", sec_id=1)
     sub = _fake_sub(9, 909, AlertKind.VOLATILITY_REGIME, {"ticker": "SBER"})
 
@@ -634,3 +686,156 @@ async def test_digest_claim_redis_down_returns_true() -> None:
     svc = _eval_service(subs=[], redis=FakeRedis(down=True))
     claimed = await svc.digest_claim(date(2026, 6, 23))
     assert claimed is True
+
+
+async def test_evaluate_volatility_regime_fires_alert_when_elevated_and_first_time() -> None:
+    """_evaluate_volatility_regime: is_elevated=True + Redis свободен → PendingAlertOut."""
+    sber = _fake_security("SBER", sec_id=1)
+    sub = _fake_sub(9, 909, AlertKind.VOLATILITY_REGIME, {"ticker": "SBER"})
+    assessor = _FakeAssessor(regime=_fake_regime(is_elevated=True))
+
+    svc = _eval_service(
+        subs=[sub],
+        securities={"SBER": sber},
+        redis=FakeRedis(),
+        assessor=assessor,
+    )
+    result = await svc.collect_pending()
+
+    assert len(result) == 1
+    alert = result[0]
+    assert alert.kind == AlertKind.VOLATILITY_REGIME
+    assert alert.chat_id == 909
+    assert alert.ticker == "SBER"
+    assert alert.volatility == pytest.approx(0.05)
+    assert alert.threshold == pytest.approx(0.03)
+    assert alert.regime_quantile == pytest.approx(0.80)
+
+
+async def test_evaluate_volatility_regime_no_alert_when_not_elevated() -> None:
+    """_evaluate_volatility_regime: is_elevated=False → пустой список."""
+    sber = _fake_security("SBER", sec_id=1)
+    sub = _fake_sub(9, 909, AlertKind.VOLATILITY_REGIME, {"ticker": "SBER"})
+    assessor = _FakeAssessor(regime=_fake_regime(is_elevated=False))
+
+    svc = _eval_service(
+        subs=[sub],
+        securities={"SBER": sber},
+        redis=FakeRedis(),
+        assessor=assessor,
+    )
+    result = await svc.collect_pending()
+    assert result == []
+
+
+async def test_evaluate_volatility_regime_dedup_blocks_second_alert() -> None:
+    """_evaluate_volatility_regime: Redis-ключ уже есть → повторный алерт не проходит."""
+    sber = _fake_security("SBER", sec_id=1)
+    sub = _fake_sub(9, 909, AlertKind.VOLATILITY_REGIME, {"ticker": "SBER"})
+    assessor = _FakeAssessor(regime=_fake_regime(is_elevated=True))
+
+    redis = FakeRedis()
+    redis._store[f"alert:vol:909:SBER:{_TODAY.isoformat()}"] = "1"
+
+    svc = _eval_service(
+        subs=[sub],
+        securities={"SBER": sber},
+        redis=redis,
+        assessor=assessor,
+    )
+    result = await svc.collect_pending()
+    assert result == []
+
+
+async def test_evaluate_volatility_regime_skips_and_logs_on_model_not_loaded(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """_evaluate_volatility_regime: ModelNotLoadedError → пропустить, залогировать warning."""
+    sber = _fake_security("SBER", sec_id=1)
+    sub = _fake_sub(9, 909, AlertKind.VOLATILITY_REGIME, {"ticker": "SBER"})
+    assessor = _FakeAssessor(raises=ModelNotLoadedError("stocklens-volatility"))
+
+    svc = _eval_service(
+        subs=[sub],
+        securities={"SBER": sber},
+        redis=FakeRedis(),
+        assessor=assessor,
+    )
+    result = await svc.collect_pending()
+
+    assert result == []
+    captured = capsys.readouterr()
+    assert "volatility_regime_skipped" in captured.out
+
+
+async def test_evaluate_volatility_regime_skips_and_logs_on_insufficient_history(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """_evaluate_volatility_regime: InsufficientHistoryError → пропустить, залогировать warning."""
+    sber = _fake_security("SBER", sec_id=1)
+    sub = _fake_sub(9, 909, AlertKind.VOLATILITY_REGIME, {"ticker": "SBER"})
+    assessor = _FakeAssessor(raises=InsufficientHistoryError("SBER", 5, 60))
+
+    svc = _eval_service(
+        subs=[sub],
+        securities={"SBER": sber},
+        redis=FakeRedis(),
+        assessor=assessor,
+    )
+    result = await svc.collect_pending()
+
+    assert result == []
+    captured = capsys.readouterr()
+    assert "volatility_regime_skipped" in captured.out
+
+
+async def test_create_volatility_regime_valid_ticker_only_succeeds() -> None:
+    """create: volatility_regime с только ticker создаётся успешно."""
+    svc = _sub_service(securities={"SBER": _fake_security("SBER")})
+    data = SubscriptionIn(
+        chat_id=100,
+        kind=AlertKind.VOLATILITY_REGIME,
+        params={"ticker": "SBER"},
+    )
+    result = await svc.create(data)
+    assert result.kind == AlertKind.VOLATILITY_REGIME
+
+
+async def test_create_volatility_regime_valid_with_quantile_and_lookback_succeeds() -> None:
+    """create: volatility_regime с ticker+quantile+lookback создаётся успешно."""
+    svc = _sub_service(securities={"SBER": _fake_security("SBER")})
+    data = SubscriptionIn(
+        chat_id=100,
+        kind=AlertKind.VOLATILITY_REGIME,
+        params={"ticker": "SBER", "quantile": 0.90, "lookback": 500},
+    )
+    result = await svc.create(data)
+    assert result.kind == AlertKind.VOLATILITY_REGIME
+
+
+async def test_create_volatility_regime_invalid_quantile_raises_422() -> None:
+    """create: volatility_regime с quantile=0.1 (< 0.5) → InvalidAlertParamsError 422."""
+    svc = _sub_service(securities={"SBER": _fake_security("SBER")})
+    data = SubscriptionIn(
+        chat_id=100,
+        kind=AlertKind.VOLATILITY_REGIME,
+        params={"ticker": "SBER", "quantile": 0.1},
+    )
+    with pytest.raises(InvalidAlertParamsError) as exc_info:
+        await svc.create(data)
+    assert exc_info.value.status == 422
+    assert "quantile" in exc_info.value.detail
+
+
+async def test_create_volatility_regime_invalid_lookback_raises_422() -> None:
+    """create: volatility_regime с lookback=10 (< 60) → InvalidAlertParamsError 422."""
+    svc = _sub_service(securities={"SBER": _fake_security("SBER")})
+    data = SubscriptionIn(
+        chat_id=100,
+        kind=AlertKind.VOLATILITY_REGIME,
+        params={"ticker": "SBER", "lookback": 10},
+    )
+    with pytest.raises(InvalidAlertParamsError) as exc_info:
+        await svc.create(data)
+    assert exc_info.value.status == 422
+    assert "lookback" in exc_info.value.detail

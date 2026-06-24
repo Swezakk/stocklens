@@ -10,9 +10,15 @@ from api.schemas.bot import DIVIDEND_LEAD_DAYS_DEFAULT, SubscriptionIn, Subscrip
 _PARAM_TICKER = "ticker"
 _PARAM_LEVEL = "level"
 _PARAM_LEAD_DAYS = "lead_days"
+_PARAM_QUANTILE = "quantile"
+_PARAM_LOOKBACK = "lookback"
 
 _LEAD_DAYS_MIN = 1
 _LEAD_DAYS_MAX = 30
+_QUANTILE_MIN = 0.5
+_QUANTILE_MAX = 0.99
+_LOOKBACK_MIN = 60
+_LOOKBACK_MAX = 1000
 
 
 class BotSubscriptionService:
@@ -98,6 +104,8 @@ def _validate_kind_specific_params(kind: AlertKind, params: dict[str, object]) -
         _validate_price_level_params(params)
     elif kind == AlertKind.DIVIDEND_UPCOMING:
         _validate_dividend_upcoming_params(params)
+    elif kind == AlertKind.VOLATILITY_REGIME:
+        _validate_volatility_regime_params(params)
 
 
 def _validate_price_level_params(params: dict[str, object]) -> None:
@@ -138,6 +146,39 @@ def _validate_dividend_upcoming_params(params: dict[str, object]) -> None:
             f"Параметр 'lead_days' должен быть в диапазоне "
             f"[{_LEAD_DAYS_MIN}..{_LEAD_DAYS_MAX}], получено: {raw}"
         )
+
+
+def _validate_volatility_regime_params(params: dict[str, object]) -> None:
+    """Проверить параметры volatility_regime: опциональные quantile и lookback.
+
+    Raises:
+        InvalidAlertParamsError: если quantile или lookback присутствуют, но невалидны.
+    """
+    raw_quantile = params.get(_PARAM_QUANTILE)
+    if raw_quantile is not None:
+        if not isinstance(raw_quantile, int | float):
+            raise InvalidAlertParamsError(
+                f"Параметр 'quantile' должен быть числом, получено: {type(raw_quantile).__name__}"
+            )
+        q = float(raw_quantile)
+        if not (_QUANTILE_MIN <= q <= _QUANTILE_MAX):
+            raise InvalidAlertParamsError(
+                f"Параметр 'quantile' должен быть в диапазоне "
+                f"[{_QUANTILE_MIN}..{_QUANTILE_MAX}], получено: {raw_quantile}"
+            )
+
+    raw_lookback = params.get(_PARAM_LOOKBACK)
+    if raw_lookback is not None:
+        if not isinstance(raw_lookback, int):
+            raise InvalidAlertParamsError(
+                "Параметр 'lookback' должен быть целым числом, "
+                f"получено: {type(raw_lookback).__name__}"
+            )
+        if not (_LOOKBACK_MIN <= raw_lookback <= _LOOKBACK_MAX):
+            raise InvalidAlertParamsError(
+                f"Параметр 'lookback' должен быть в диапазоне "
+                f"[{_LOOKBACK_MIN}..{_LOOKBACK_MAX}], получено: {raw_lookback}"
+            )
 
 
 def _to_out(subscription: BotSubscription) -> SubscriptionOut:

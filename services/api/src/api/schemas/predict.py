@@ -41,3 +41,21 @@ class VolatilityPredictionOut(BaseModel):
     model: str
     model_version: str
     metrics_vs_baseline: VolatilityMetrics
+
+
+class VolatilityRegime(BaseModel):
+    """Режим волатильности: прогноз vs исторический квантиль (ml-spec §9).
+
+    ``protected_namespaces=()`` — нет полей ``model_*``, но конфигурация единообразна с
+    остальными DTO этого модуля.
+    """
+
+    model_config = {"protected_namespaces": ()}
+
+    ticker: str
+    predicted_for: date
+    volatility: float
+    threshold: float
+    is_elevated: bool
+    quantile: float
+    lookback: int

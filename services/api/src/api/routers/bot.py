@@ -8,17 +8,21 @@ from fastapi import APIRouter, Query
 from starlette.responses import Response
 
 from api.core.cache import AlertNxStore, RedisCache
-from api.core.db import RedisDep, SessionDep
+from api.core.db import RedisDep, SessionDep, SettingsDep
+from api.ml.deps import MlBundleDep
 from api.repositories.alert import (
     SqlCloseRepository,
     SqlDividendAlertRepository,
     SqlNewsAlertRepository,
 )
 from api.repositories.bot import SqlBotSubscriptionRepository
+from api.repositories.prediction import SqlPredictionRepository
 from api.repositories.security import SqlSecurityRepository
+from api.repositories.volatility_features import SqlVolatilityFeatureRepository
 from api.schemas.bot import DigestClaimOut, PendingAlertOut, SubscriptionIn, SubscriptionOut
 from api.services.alert_evaluation import AlertEvaluationService
 from api.services.bot import BotSubscriptionService
+from api.services.prediction import PredictionService
 
 router = APIRouter(prefix="/api/v1/bot", tags=["bot"])
 
@@ -45,8 +49,20 @@ def _alert_nx_store(redis: RedisDep) -> AlertNxStore:
     return RedisCache(redis)
 
 
-def _evaluation_service(session: SessionDep, redis: RedisDep) -> AlertEvaluationService:
+def _evaluation_service(
+    session: SessionDep,
+    redis: RedisDep,
+    bundle: MlBundleDep,
+    settings: SettingsDep,
+) -> AlertEvaluationService:
     """Собрать AlertEvaluationService из зависимостей запроса."""
+    assessor = PredictionService(
+        security_repo=SqlSecurityRepository(session),
+        feature_repo=SqlVolatilityFeatureRepository(session),
+        prediction_repo=SqlPredictionRepository(session),
+        bundle=bundle,
+        settings=settings,
+    )
     return AlertEvaluationService(
         bot_repo=SqlBotSubscriptionRepository(session),
         security_repo=SqlSecurityRepository(session),
@@ -55,6 +71,9 @@ def _evaluation_service(session: SessionDep, redis: RedisDep) -> AlertEvaluation
         dividend_repo=SqlDividendAlertRepository(session),
         redis=_alert_nx_store(redis),
         today=_today_moscow,
+        assessor=assessor,
+        volatility_quantile=settings.volatility_regime_quantile,
+        volatility_lookback=settings.volatility_regime_lookback,
     )
 
 
@@ -118,9 +137,11 @@ async def delete_subscription(session: SessionDep, sub_id: int) -> Response:
 async def get_pending_alerts(
     session: SessionDep,
     redis: RedisDep,
+    bundle: MlBundleDep,
+    settings: SettingsDep,
 ) -> list[PendingAlertOut]:
     """POST /bot/alerts/pending — список сработавших алертов."""
-    return await _evaluation_service(session, redis).collect_pending()
+    return await _evaluation_service(session, redis, bundle, settings).collect_pending()
 
 
 @router.post(
@@ -137,6 +158,8 @@ async def get_pending_alerts(
 async def claim_digest(
     session: SessionDep,
     redis: RedisDep,
+    bundle: MlBundleDep,
+    settings: SettingsDep,
     for_date: Annotated[
         date | None,
         Query(description="Дата дайджеста в формате YYYY-MM-DD (по умолчанию — сегодня по МСК)"),
@@ -144,5 +167,5 @@ async def claim_digest(
 ) -> DigestClaimOut:
     """POST /bot/digest/claim?for_date= — зарезервировать дайджест."""
     target_date = for_date if for_date is not None else _today_moscow()
-    claimed = await _evaluation_service(session, redis).digest_claim(target_date)
+    claimed = await _evaluation_service(session, redis, bundle, settings).digest_claim(target_date)
     return DigestClaimOut(claimed=claimed)

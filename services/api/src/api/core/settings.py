@@ -45,6 +45,10 @@ class ApiSettings(BaseSettings):
     # Окно истории для инференса = окно обучения (пост-2022, структурный разрыв; ml-spec D8).
     ml_train_start: date = date(2022, 4, 1)
 
+    # Оценка режима волатильности (ml-spec §9).
+    volatility_regime_quantile: float = 0.80
+    volatility_regime_lookback: int = 252
+
     model_config = {
         "case_sensitive": False,
         "extra": "ignore",

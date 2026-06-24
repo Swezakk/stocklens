@@ -32,6 +32,7 @@ _KIND_LABELS: dict[AlertKind, str] = {
     AlertKind.PRICE_LEVEL: "📉 Уровень цены",
     AlertKind.SENTIMENT_SPIKE: "⚠️ Всплеск негатива",
     AlertKind.DIVIDEND_UPCOMING: "💰 Дивидендная отсечка",
+    AlertKind.VOLATILITY_REGIME: "📈 Режим волатильности",
 }
 
 

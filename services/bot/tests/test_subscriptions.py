@@ -44,10 +44,11 @@ def test_parse_unknown_kind_is_error() -> None:
     assert isinstance(parse_subscribe("moon_phase SBER"), ParseError)
 
 
-def test_parse_volatility_regime_is_deferred_error() -> None:
+def test_parse_volatility_regime_ticker_only() -> None:
     result = parse_subscribe("volatility_regime SBER")
-    assert isinstance(result, ParseError)
-    assert "ML" in result.message
+    assert isinstance(result, ParsedSubscribe)
+    assert result.kind is AlertKind.VOLATILITY_REGIME
+    assert result.params == {"ticker": "SBER"}  # порог (квантиль/окно) — дефолты сервера
 
 
 def test_parse_unsubscribe_returns_int_id() -> None:

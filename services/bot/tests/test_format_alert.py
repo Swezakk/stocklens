@@ -1,4 +1,4 @@
-"""Tests for format_alert — one test per AlertKind, plus VOLATILITY_REGIME safe fallback.
+"""Tests for format_alert — one test per AlertKind.
 
 TDD: verifies the HTML output contains expected data without prescribing exact wording.
 """
@@ -49,6 +49,9 @@ def _volatility_regime_alert() -> PendingAlert:
         chat_id=111,
         kind=AlertKind.VOLATILITY_REGIME,
         ticker="MOEX",
+        volatility=0.045,
+        threshold=0.030,
+        regime_quantile=0.80,
     )
 
 
@@ -88,8 +91,9 @@ def test_format_alert_dividend_upcoming_non_rub_uses_currency_symbol() -> None:
     assert "₽" not in text
 
 
-def test_format_alert_volatility_regime_does_not_raise() -> None:
-    """VOLATILITY_REGIME has no detail fields — must not crash; returns safe fallback."""
+def test_format_alert_volatility_regime_contains_ticker_and_levels() -> None:
+    """VOLATILITY_REGIME: тикер + прогноз и порог в процентах."""
     text = format_alert(_volatility_regime_alert())
     assert "MOEX" in text
-    assert len(text) > 0
+    assert "4.5%" in text  # volatility 0.045 → 4.5%
+    assert "3.0%" in text  # threshold 0.030 → 3.0%

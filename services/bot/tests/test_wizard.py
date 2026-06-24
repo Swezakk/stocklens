@@ -101,6 +101,8 @@ def test_build_subscription_dividend_upcoming_does_not_require_level() -> None:
     assert result.kind is AlertKind.DIVIDEND_UPCOMING
 
 
-def test_build_subscription_volatility_regime_returns_error() -> None:
+def test_build_subscription_volatility_regime_ticker_only() -> None:
     result = build_subscription(_CHAT_ID, AlertKind.VOLATILITY_REGIME, "SBER", None)
-    assert isinstance(result, WizardError)
+    assert isinstance(result, SubscriptionIn)
+    assert result.kind is AlertKind.VOLATILITY_REGIME
+    assert result.params == {"ticker": "SBER"}

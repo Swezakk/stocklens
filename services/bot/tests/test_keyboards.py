@@ -101,14 +101,15 @@ def test_wizard_kind_kb_has_only_subscribable_kinds() -> None:
         assert parsed.kind in _SUBSCRIBABLE_KINDS
 
 
-def test_wizard_kind_kb_does_not_include_volatility_regime() -> None:
+def test_wizard_kind_kb_includes_volatility_regime() -> None:
     markup = _assert_markup(wizard_kind_kb())
     btns = _flat_buttons(markup)
-    for btn in btns:
-        cd = btn.callback_data
-        if cd is not None and cd.startswith("wkind:"):
-            parsed = WizKindCb.unpack(cd)
-            assert parsed.kind is not AlertKind.VOLATILITY_REGIME
+    kinds = {
+        WizKindCb.unpack(btn.callback_data).kind
+        for btn in btns
+        if btn.callback_data is not None and btn.callback_data.startswith("wkind:")
+    }
+    assert AlertKind.VOLATILITY_REGIME in kinds
 
 
 def test_wizard_kind_kb_has_cancel_button() -> None:

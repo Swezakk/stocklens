@@ -135,6 +135,7 @@ class PendingAlert(BaseModel):
     - price_level:        level, close
     - sentiment_spike:    article_id, article_title, article_url, article_published_at
     - dividend_upcoming:  ex_date, dividend_value, dividend_currency
+    - volatility_regime:  volatility, threshold, regime_quantile
     """
 
     chat_id: int
@@ -152,6 +153,10 @@ class PendingAlert(BaseModel):
     ex_date: date | None = None
     dividend_value: Decimal | None = None
     dividend_currency: Currency | None = None
+
+    volatility: float | None = None
+    threshold: float | None = None
+    regime_quantile: float | None = None
 
 
 class DigestClaim(BaseModel):

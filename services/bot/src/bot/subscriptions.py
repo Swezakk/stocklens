@@ -1,17 +1,22 @@
 """Разбор аргументов команд /subscribe и /unsubscribe (чистые функции, DESIGN §11).
 
 Хендлеры тонкие: разбор и валидацию формы аргументов делает этот слой (unit-тестируемо),
-а правила алертов и хранение — API (единственный источник истины). VOLATILITY_REGIME в B1
-не предлагается для подписки: алерт завязан на ML-прогноз волатильности, которого ещё нет.
+а правила алертов и хранение — API (единственный источник истины). VOLATILITY_REGIME
+подписывается по тикеру; порог (квантиль/окно) задаётся сервером по умолчанию (ml-spec §9).
 """
 
 from dataclasses import dataclass, field
 
 from stocklens_core.enums import AlertKind
 
-#: Виды алертов, доступные для подписки в B1 (детерминированные).
+#: Виды алертов, доступные для подписки (детерминированные).
 _SUBSCRIBABLE_KINDS = frozenset(
-    {AlertKind.PRICE_LEVEL, AlertKind.SENTIMENT_SPIKE, AlertKind.DIVIDEND_UPCOMING}
+    {
+        AlertKind.PRICE_LEVEL,
+        AlertKind.SENTIMENT_SPIKE,
+        AlertKind.DIVIDEND_UPCOMING,
+        AlertKind.VOLATILITY_REGIME,
+    }
 )
 
 #: Ключи параметров подписки (без хардкода строк в логике).
@@ -23,11 +28,11 @@ _PRICE_LEVEL_TOKENS = 3
 _KIND_AND_TICKER_TOKENS = 2
 
 _ERR_UNKNOWN_KIND = (
-    "Неизвестный вид алерта. Доступно: price_level, sentiment_spike, dividend_upcoming."
+    "Неизвестный вид алерта. Доступно: price_level, sentiment_spike, "
+    "dividend_upcoming, volatility_regime."
 )
 _ERR_PRICE_LEVEL_ARGS = "Для price_level укажите тикер и уровень: /subscribe price_level SBER 250"
 _ERR_LEVEL_NOT_NUMBER = "Уровень должен быть числом: /subscribe price_level SBER 250"
-_ERR_VOLATILITY_DEFERRED = "Алерт volatility_regime появится вместе с ML-прогнозами."
 _ERR_UNSUBSCRIBE_ID = "Укажите числовой id подписки: /unsubscribe 3"
 
 
@@ -54,8 +59,6 @@ def parse_subscribe(args: str) -> ParsedSubscribe | ParseError:
     except ValueError:
         return ParseError(_ERR_UNKNOWN_KIND)
 
-    if kind is AlertKind.VOLATILITY_REGIME:
-        return ParseError(_ERR_VOLATILITY_DEFERRED)
     if kind not in _SUBSCRIBABLE_KINDS:
         return ParseError(_ERR_UNKNOWN_KIND)
     if kind is AlertKind.PRICE_LEVEL:

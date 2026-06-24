@@ -8,6 +8,7 @@
 import html
 from collections.abc import Sequence
 from decimal import Decimal
+from typing import assert_never
 
 from stocklens_core.enums import AlertKind, Currency
 
@@ -163,9 +164,8 @@ def _format_params(params: dict[str, object]) -> str:
 def format_alert(alert: PendingAlert) -> str:
     """Сформировать HTML-сообщение для отправки по сработавшему алерту.
 
-    Каждый вид алерта форматируется по собственному шаблону; VOLATILITY_REGIME и
-    неизвестные виды — безопасный фолбэк без падения (бот не должен крашиться от
-    нового вида алерта в API).
+    Каждый вид алерта форматируется по собственному шаблону. Покрыты все виды AlertKind —
+    новый вид без ветки поймает mypy (exhaustiveness), а не рантайм.
     """
     ticker = html.escape(alert.ticker)
     if alert.kind == AlertKind.PRICE_LEVEL:
@@ -188,7 +188,14 @@ def format_alert(alert: PendingAlert) -> str:
         else:
             value = "—"
         return f"<b>Дивидендная отсечка: {ticker}</b>\nДата отсечки: {ex} · Дивиденд: {value}"
-    return f"<b>Алерт: {ticker}</b>\nВид: {html.escape(alert.kind.value)}"
+    if alert.kind == AlertKind.VOLATILITY_REGIME:
+        vol = f"{alert.volatility * 100:.1f}%" if alert.volatility is not None else "—"
+        thr = f"{alert.threshold * 100:.1f}%" if alert.threshold is not None else "—"
+        return (
+            f"<b>Режим волатильности: {ticker}</b>\n"
+            f"Прогноз 5-дневной волатильности {vol} превысил порог {thr}"
+        )
+    assert_never(alert.kind)
 
 
 def format_digest(data: DigestData) -> str:

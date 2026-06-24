@@ -105,7 +105,7 @@ services:
     # Порт-формы заданы явно — без догадок про `:*` wildcard.
     command: >
       mlflow server
-      --backend-store-uri postgresql+psycopg://${DB_USER}:${DB_PASSWORD}@db:5432/mlflow
+      --backend-store-uri postgresql+psycopg2://${DB_USER}:${DB_PASSWORD}@db:5432/mlflow
       --artifacts-destination /mlflow/artifacts
       --serve-artifacts
       --host 0.0.0.0 --port 5000

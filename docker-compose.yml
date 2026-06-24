@@ -72,10 +72,11 @@ services:
       dockerfile: services/mlflow/Dockerfile
     command: >
       mlflow server
-      --backend-store-uri postgresql+psycopg://${DB_USER}:${DB_PASSWORD}@db:5432/mlflow
+      --backend-store-uri postgresql+psycopg2://${DB_USER}:${DB_PASSWORD}@db:5432/mlflow
       --artifacts-destination /mlflow/artifacts
       --serve-artifacts
       --host 0.0.0.0 --port 5000
+      --allowed-hosts mlflow,mlflow:5000,localhost,localhost:5000,127.0.0.1,127.0.0.1:5000
     volumes:
       - mlflow_artifacts:/mlflow/artifacts
     depends_on:

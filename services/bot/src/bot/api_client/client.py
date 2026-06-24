@@ -23,6 +23,7 @@ from stocklens_core.enums import SentimentLabel
 from bot.api_client.dto import (
     DigestClaim,
     DividendPage,
+    ForecastRefresh,
     IndexPage,
     IndexValue,
     NewsPage,
@@ -212,6 +213,11 @@ class ApiClient:
             params={"for_date": for_date.isoformat()},
         )
         return DigestClaim.model_validate(response.json()).claimed
+
+    async def refresh_forecasts(self) -> bool:
+        """POST /bot/forecasts/refresh — запустить фоновую генерацию прогнозов; True = принято."""
+        response = await self._request(_HTTP_POST, "/bot/forecasts/refresh")
+        return ForecastRefresh.model_validate(response.json()).accepted
 
     async def get_index(self, index_code: str = "IMOEX", limit: int = 2) -> list[IndexValue]:
         """GET /data/index — значения биржевого индекса (Page, сортировка по дате убывания)."""

@@ -88,6 +88,22 @@ async def digest_job(
         _log.exception("digest_gather_unexpected_error")
 
 
+async def forecast_refresh_job(*, client: ApiClient) -> None:
+    """Запустить ежедневную пакетную генерацию прогнозов волатильности (DESIGN §9.1).
+
+    Идемпотентно: повторный вызов в тот же торговый день → попадание в read-through кэш
+    predictions (тот же predicted_for). Ошибки не пробрасываются — задание не должно
+    ронять планировщик.
+    """
+    try:
+        accepted = await client.refresh_forecasts()
+        _log.info("forecast_refresh_triggered", accepted=accepted)
+    except ApiError as exc:
+        _log.warning("forecast_refresh_api_error", detail=exc.user_message)
+    except Exception:
+        _log.exception("forecast_refresh_unexpected_error")
+
+
 def build_scheduler(bot: Bot, client: ApiClient, settings: BotSettings) -> AsyncIOScheduler:
     """Создать AsyncIOScheduler с двумя заданиями бота.
 
@@ -113,6 +129,18 @@ def build_scheduler(bot: Bot, client: ApiClient, settings: BotSettings) -> Async
         minute=settings.digest_minute_msk,
         kwargs={"bot": bot, "client": client, "digest_chat_id": settings.digest_chat_id},
         id="digest_daily",
+        max_instances=1,
+        misfire_grace_time=_MISFIRE_GRACE_SECONDS,
+        coalesce=True,
+    )
+
+    scheduler.add_job(
+        forecast_refresh_job,
+        "cron",
+        hour=settings.forecast_refresh_hour_msk,
+        minute=settings.forecast_refresh_minute_msk,
+        kwargs={"client": client},
+        id="forecast_refresh_daily",
         max_instances=1,
         misfire_grace_time=_MISFIRE_GRACE_SECONDS,
         coalesce=True,

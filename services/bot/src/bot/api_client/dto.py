@@ -165,6 +165,13 @@ class DigestClaim(BaseModel):
     claimed: bool
 
 
+class ForecastRefresh(BaseModel):
+    """Результат запуска пакетной генерации прогнозов (зеркало ForecastRefreshOut API)."""
+
+    accepted: bool
+    reason: str | None = None
+
+
 class IndexValue(BaseModel):
     """Значение биржевого индекса за торговый день (зеркало IndexValueOut API)."""
 

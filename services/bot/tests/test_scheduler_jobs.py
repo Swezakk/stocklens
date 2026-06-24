@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 import httpx
 import respx
 from bot.api_client.client import ApiClient
-from bot.scheduler import alert_sweep_job, digest_job
+from bot.scheduler import alert_sweep_job, digest_job, forecast_refresh_job
 
 _BASE = "http://testapi"
 _PREFIX = "/api/v1"
@@ -227,6 +227,34 @@ async def test_digest_job_swallows_api_errors() -> None:
             digest_chat_id=999,
             clock=lambda: fixed_clock,
         )
+    finally:
+        await client.aclose()
+    # No exception raised
+
+
+@respx.mock
+async def test_forecast_refresh_job_triggers_endpoint() -> None:
+    route = respx.post(f"{_BASE}{_PREFIX}/bot/forecasts/refresh").mock(
+        return_value=httpx.Response(202, json={"accepted": True, "reason": None})
+    )
+    client = _make_client()
+    try:
+        await forecast_refresh_job(client=client)
+    finally:
+        await client.aclose()
+
+    assert route.called
+
+
+@respx.mock
+async def test_forecast_refresh_job_swallows_api_errors() -> None:
+    """A network error must not propagate — job must not crash the scheduler."""
+    respx.post(f"{_BASE}{_PREFIX}/bot/forecasts/refresh").mock(
+        side_effect=httpx.ConnectError("refused")
+    )
+    client = _make_client()
+    try:
+        await forecast_refresh_job(client=client)
     finally:
         await client.aclose()
     # No exception raised

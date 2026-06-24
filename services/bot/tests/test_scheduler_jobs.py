@@ -13,7 +13,8 @@ from zoneinfo import ZoneInfo
 import httpx
 import respx
 from bot.api_client.client import ApiClient
-from bot.scheduler import alert_sweep_job, digest_job, forecast_refresh_job
+from bot.scheduler import alert_sweep_job, build_scheduler, digest_job, forecast_refresh_job
+from bot.settings import BotSettings
 
 _BASE = "http://testapi"
 _PREFIX = "/api/v1"
@@ -258,3 +259,21 @@ async def test_forecast_refresh_job_swallows_api_errors() -> None:
     finally:
         await client.aclose()
     # No exception raised
+
+
+def test_build_scheduler_registers_all_jobs() -> None:
+    """Все три задания (включая forecast_refresh_daily) попадают в планировщик при сборке."""
+    settings = BotSettings.model_validate(
+        {
+            "telegram_bot_token": "1:abc",
+            "auth_password": "owner-pw",
+            "api_base_url": _BASE,
+            "auth_username": "admin",
+            "digest_chat_id": 111,
+        }
+    )
+    scheduler = build_scheduler(MagicMock(), MagicMock(), settings)
+
+    assert scheduler.get_job("forecast_refresh_daily") is not None
+    assert scheduler.get_job("digest_daily") is not None
+    assert scheduler.get_job("alert_sweep") is not None

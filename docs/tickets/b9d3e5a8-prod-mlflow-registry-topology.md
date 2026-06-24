@@ -1,7 +1,7 @@
 ---
 id: b9d3e5a8
 title: "Прод-топология MLflow-реестра: куда логирует переобучение и как ревьюить"
-status: open
+status: resolved
 priority: medium
 component: deploy
 discovered: 2026-06-24
@@ -48,5 +48,6 @@ discovered-from: [5g-mlflow-serving]
 baseline), `stocklens-volatility` v1 зарегистрирована (alias `champion`+`production`),
 прод-API грузит `@production` и отдаёт реальный прогноз. Потребовалось: mlflow
 `--allowed-hosts` (security-middleware 3.x) + **psycopg2** (psycopg3 ломает реестр на PG).
-**Остаётся (low):** UI-ревью метрик mlflow (ad-hoc SSH-туннель пока достаточно) +
-зафиксировать выбор доступа в `docs/deploy.md`.
+UI-ревью метрик решён **ad-hoc SSH-туннелем** (выбор владельца, не Traefik): команда
+форвардит порт mlflow с IP контейнера, `http://localhost:5000` в браузере; задокументировано
+в `docs/deploy.md` (раздел «MLflow — реестр моделей и ревью метрик»). Тикет закрыт.

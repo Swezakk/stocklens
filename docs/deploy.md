@@ -128,6 +128,30 @@ curl -sS https://api.stocklens.prod-track.ru/api/v1/health/ready
 # и Swagger: https://api.stocklens.prod-track.ru/docs
 ```
 
+## MLflow — реестр моделей и ревью метрик
+
+`mlflow` развёрнут как 7-й сервис (только `expose`, наружу не публикуется). Прод-API грузит
+модель волатильности из реестра по `models:/stocklens-volatility@production` (alias
+выставляется при регистрации). Ревью метрик в UI — через **ad-hoc SSH-туннель** (порт mlflow
+на хосте не опубликован, форвардим на IP контейнера в docker-сети):
+
+```bash
+MLFLOW_IP=$(ssh swezakk@213.171.29.124 \
+  "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
+   compose-quantify-haptic-sensor-fkssrm-mlflow-1")
+ssh -L 5000:$MLFLOW_IP:5000 swezakk@213.171.29.124
+# затем в браузере: http://localhost:5000  (Host localhost разрешён в --allowed-hosts mlflow)
+```
+
+**Переобучение** должно логировать в прод-MLflow (не в локальный sqlite!): one-off контейнер
+на compose-сети VPS с `--mlflow-uri http://mlflow:5000` (полная команда — в памяти deploy,
+раздел «Прод-переобучение волатильности»). После регистрации модель грузится при
+старте/рестарте `api` (есть `depends_on: mlflow: service_healthy`).
+
+Gotchas mlflow (НЕ откатывать): backend на **psycopg2**, а не psycopg3 (psycopg3 ломает
+операции реестра на PostgreSQL); `--allowed-hosts` в команде; `mem_limit ≥ 1536m`. Детали —
+в комментариях `docker-compose.prod.yml` и `services/mlflow/Dockerfile`.
+
 ## Восстановление из бэкапа
 
 ```bash
@@ -142,8 +166,10 @@ gunzip -c /opt/stocklens/backups/stocklens_YYYYMMDD_HHMMSS.sql.gz \
   коммита через env `IMAGE_TAG`).
 - Том `stocklens_pgdata` при этом не трогается (external) — данные сохраняются.
 
-## Что появится позже (фаза F)
+## Что появится позже
 
-`dashboard` (Streamlit), `bot` (aiogram, long-polling — входящий трафик не нужен),
-`mlflow`. Плюс ротация docker-логов (`json-file` с `max-size`), UFW, мониторинг.
-Обучение ML-моделей — офлайн (локально), на сервер деплоятся артефакты.
+Все 7 сервисов (`db`, `redis`, `ingestor`, `api`, `dashboard`, `bot`, `mlflow`) развёрнуты;
+ML-инференс волатильности активен. Остаётся: ротация docker-логов (`json-file` с `max-size`),
+UFW, мониторинг; расписание алертов бота (B2) и дайджеста (B3); регулярная генерация прогнозов
+(чтобы дашборд «Прогнозы» накапливал track record — сейчас прогнозы пишутся только on-demand
+при `POST /predict/volatility` или оценке алерта); CI-smoke реестра (тикет a1c4f7e2).

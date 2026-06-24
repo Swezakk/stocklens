@@ -1,7 +1,7 @@
 ---
 id: d8f3b2c1
 title: "api не догружает модель при полном редеплое (cold-start) — решить depends_on"
-status: open
+status: resolved
 priority: medium
 component: deploy
 discovered: 2026-06-24
@@ -36,6 +36,13 @@ healthy (~45с), а `load_bundle` (внутри `lifespan`) ограничен ~
 
 ## Критерий готовности
 
-- [ ] Решение по развилке зафиксировано (с владельцем).
-- [ ] Если (1): добавить `depends_on` + проверить полный редеплой → `models:ok` без ручного
-      рестарта; если (2): записать правило в `docs/deploy.md` (рунбук редеплоя).
+- [x] Решение по развилке зафиксировано (с владельцем).
+- [x] Добавить `depends_on` + проверить полный редеплой → `models:ok` без ручного рестарта.
+
+## Resolution (2026-06-24)
+
+Владелец выбрал **вариант 1**: `depends_on: mlflow: condition: service_healthy` на api в
+обоих compose (prod + dev). api ждёт mlflow healthy → `load_bundle` резолвит `@production`
+с первой попытки, авто-загрузка модели при редеплое без ручного рестарта. Trade-off (крит-путь
+зависит от mlflow) принят осознанно — mlflow стабилен на psycopg2 + `mem_limit 1536m`.
+Цепочка `db → {mlflow-db-init, migrations} → mlflow → api → {dashboard, bot}`, без циклов.

@@ -120,6 +120,10 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      # api ждёт mlflow healthy → load_bundle грузит модель с первой попытки при полном
+      # редеплое, без ручного рестарта (тикет d8f3b2c1). Trade-off: крит-путь зависит от mlflow.
+      mlflow:
+        condition: service_healthy
     healthcheck:
       test:
         [

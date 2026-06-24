@@ -99,12 +99,17 @@ services:
     # 7-й сервис (инвариант §4): tracking + реестр. Образ собран в CI (psycopg добавлен поверх
     # официального mlflow). Наружу не публикуется — API ходит на http://mlflow:5000 внутри сети.
     image: ghcr.io/swezakk/stocklens-mlflow:${IMAGE_TAG:-latest}
+    # --allowed-hosts: security-middleware MLflow 3.x режет Host≠localhost — api и тренер с
+    # Host `mlflow:5000` ловили 403 на /api/2.0/mlflow/... (реестр). Разрешаем внутренние
+    # хосты сети (least-privilege; mlflow наружу не публикуется, доступ только из compose-сети).
+    # Порт-формы заданы явно — без догадок про `:*` wildcard.
     command: >
       mlflow server
       --backend-store-uri postgresql+psycopg://${DB_USER}:${DB_PASSWORD}@db:5432/mlflow
       --artifacts-destination /mlflow/artifacts
       --serve-artifacts
       --host 0.0.0.0 --port 5000
+      --allowed-hosts mlflow,mlflow:5000,localhost,localhost:5000,127.0.0.1,127.0.0.1:5000
     volumes:
       - mlflow_artifacts:/mlflow/artifacts
     depends_on:
@@ -125,8 +130,9 @@ services:
     expose:
       - "5000"
     # MLflow 3.x (security-middleware + serve-artifacts) упирался в 768m → memory-pressure
-    # убивал worker'ы → restart-loop (RestartCount рос). 1280m даёт запас стабильности.
-    mem_limit: 1280m
+    # убивал worker'ы → restart-loop. 1280m держал idle ~1.24G впритык; 1536m — запас под
+    # пик при логировании/регистрации модели (фаза обучения).
+    mem_limit: 1536m
     restart: unless-stopped
 
   api:

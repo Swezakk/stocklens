@@ -29,6 +29,7 @@ from stocklens_core.enums import AlertKind, Currency, SentimentLabel
 from stocklens_core.models.market import Dividend, Security
 from stocklens_core.models.news import NewsArticle, NewsSentiment
 from stocklens_core.models.portfolio import BotSubscription
+from structlog.testing import capture_logs
 
 
 @dataclass
@@ -747,9 +748,7 @@ async def test_evaluate_volatility_regime_dedup_blocks_second_alert() -> None:
     assert result == []
 
 
-async def test_evaluate_volatility_regime_skips_and_logs_on_model_not_loaded(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+async def test_evaluate_volatility_regime_skips_and_logs_on_model_not_loaded() -> None:
     """_evaluate_volatility_regime: ModelNotLoadedError → пропустить, залогировать warning."""
     sber = _fake_security("SBER", sec_id=1)
     sub = _fake_sub(9, 909, AlertKind.VOLATILITY_REGIME, {"ticker": "SBER"})
@@ -761,16 +760,14 @@ async def test_evaluate_volatility_regime_skips_and_logs_on_model_not_loaded(
         redis=FakeRedis(),
         assessor=assessor,
     )
-    result = await svc.collect_pending()
+    with capture_logs() as logs:
+        result = await svc.collect_pending()
 
     assert result == []
-    captured = capsys.readouterr()
-    assert "volatility_regime_skipped" in captured.out
+    assert any(entry["event"] == "volatility_regime_skipped" for entry in logs)
 
 
-async def test_evaluate_volatility_regime_skips_and_logs_on_insufficient_history(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+async def test_evaluate_volatility_regime_skips_and_logs_on_insufficient_history() -> None:
     """_evaluate_volatility_regime: InsufficientHistoryError → пропустить, залогировать warning."""
     sber = _fake_security("SBER", sec_id=1)
     sub = _fake_sub(9, 909, AlertKind.VOLATILITY_REGIME, {"ticker": "SBER"})
@@ -782,11 +779,11 @@ async def test_evaluate_volatility_regime_skips_and_logs_on_insufficient_history
         redis=FakeRedis(),
         assessor=assessor,
     )
-    result = await svc.collect_pending()
+    with capture_logs() as logs:
+        result = await svc.collect_pending()
 
     assert result == []
-    captured = capsys.readouterr()
-    assert "volatility_regime_skipped" in captured.out
+    assert any(entry["event"] == "volatility_regime_skipped" for entry in logs)
 
 
 async def test_create_volatility_regime_valid_ticker_only_succeeds() -> None:

@@ -36,3 +36,13 @@ discovered-from: [5g-mlflow-serving]
 - [ ] Проверить резолв артефактов через сервер (`--serve-artifacts`), не прямой доступ к тому.
 - [ ] Включить в CI smoke compose-стека (§11.3): `mlflow` healthy → API `lifespan` грузит
       модель → `/health/ready` = 200.
+
+## Resolution (2026-06-24, фаза D) — путь доказан вручную на проде
+
+Совместный путь проверен **на проде целиком**: тренер залогировал → PG-backed mlflow-сервер
+сохранил → прод-API загрузил `models:/stocklens-volatility@production` через
+`--serve-artifacts` и отдал реальный прогноз (`POST /predict/volatility` SBER → GARCH,
+v1, QLIKE 0.698 vs baseline 1.589). Артефакт-резолюция через serve-artifacts работает.
+Ключевое открытие: на PostgreSQL нужен **psycopg2**, не psycopg3 (иначе
+`operator does not exist: integer = character varying` на любой операции по версии модели).
+**Остаётся:** автоматизировать как CI smoke compose-стека (§11.3) — пока проверка ручная.

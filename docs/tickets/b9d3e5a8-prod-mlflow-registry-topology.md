@@ -38,3 +38,15 @@ discovered-from: [5g-mlflow-serving]
 - [ ] Реализовать доступ (туннель-инструкция ИЛИ Traefik-роут + авторизация).
 - [ ] Создать external-том `stocklens_mlflow_artifacts` на VPS до первого деплоя mlflow.
 - [ ] Прогнать первичное обучение против прод-БД → проверить, что прод-API грузит champion.
+
+## Resolution (2026-06-24, фаза D) — основное снято
+
+Доступ для обучения решён **третьим вариантом** (не туннель / не Traefik): one-off контейнер
+на compose-сети VPS (`…_default`, репо из `/etc/dokploy/compose/…/code`,
+`--mlflow-uri http://mlflow:5000`; детали — память deploy). Сделано: external-том
+`stocklens_mlflow_artifacts` создан; первичное обучение против прод-БД прошло (GARCH бьёт
+baseline), `stocklens-volatility` v1 зарегистрирована (alias `champion`+`production`),
+прод-API грузит `@production` и отдаёт реальный прогноз. Потребовалось: mlflow
+`--allowed-hosts` (security-middleware 3.x) + **psycopg2** (psycopg3 ломает реестр на PG).
+**Остаётся (low):** UI-ревью метрик mlflow (ad-hoc SSH-туннель пока достаточно) +
+зафиксировать выбор доступа в `docs/deploy.md`.

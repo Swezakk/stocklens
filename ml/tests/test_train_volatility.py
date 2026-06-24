@@ -3,13 +3,14 @@ baseline gate, champion registration, MLflow logging."""
 
 from pathlib import Path
 
-import mlflow
 import numpy as np
 import pandas as pd
 import pytest
-from mlflow import MlflowClient
 from stocklens_ml.config import MlSettings
 from stocklens_ml.training import train_volatility
+
+import mlflow
+from mlflow import MlflowClient
 
 
 def _settings() -> MlSettings:

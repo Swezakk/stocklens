@@ -6,11 +6,12 @@ Stages устарели — продвижение только алиасами
 
 from pathlib import Path
 
-import mlflow
 import pandas as pd
-from mlflow import MlflowClient
 from stocklens_ml.registry import promote
 from stocklens_ml.registry.pyfunc_volatility import log_volatility_model
+
+import mlflow
+from mlflow import MlflowClient
 
 _MODEL = "stocklens-volatility"
 _HAR_COEF = [0.5, 0.3, 0.2]

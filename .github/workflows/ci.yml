@@ -11,6 +11,10 @@ jobs:
   lint:
     name: Lint (ruff)
     runs-on: ubuntu-latest
+    # Версия ruff пиннится: uvx без пина тянет latest, и релиз ruff с новыми правилами
+    # сортировки/формата ломает зелёный CI без правок кода (поймано на 0.15.19).
+    env:
+      RUFF_VERSION: "0.15.19"
     steps:
       - uses: actions/checkout@v6
 
@@ -19,10 +23,10 @@ jobs:
           python-version: "3.12"
 
       - name: ruff check
-        run: uvx ruff check .
+        run: uvx ruff@${RUFF_VERSION} check .
 
       - name: ruff format check
-        run: uvx ruff format --check .
+        run: uvx ruff@${RUFF_VERSION} format --check .
 
   core:
     name: stocklens-core (pytest + mypy)

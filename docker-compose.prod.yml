@@ -124,7 +124,9 @@ services:
       start_period: 30s
     expose:
       - "5000"
-    mem_limit: 768m
+    # MLflow 3.x (security-middleware + serve-artifacts) упирался в 768m → memory-pressure
+    # убивал worker'ы → restart-loop (RestartCount рос). 1280m даёт запас стабильности.
+    mem_limit: 1280m
     restart: unless-stopped
 
   api:
@@ -148,6 +150,15 @@ services:
       # поднимутся. После регистрации модели → ML_REQUIRED_FOR_READY=true в env Dokploy.
       MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
       ML_REQUIRED_FOR_READY: ${ML_REQUIRED_FOR_READY:-false}
+      # MLflow-клиент по умолчанию ретраит 7× с экспоненциальным backoff (~4 мин/попытка)
+      # на connection-refused; api стартует раньше mlflow → load_bundle (внутри lifespan)
+      # блокирует startup на десятки минут → api unhealthy → dashboard/bot не поднимаются.
+      # Ограничиваем ретраи клиента и попытки loader'а: load_bundle падает быстро (~12с) →
+      # api healthy без модели (required=false), модель подхватывается при следующем рестарте.
+      MLFLOW_HTTP_REQUEST_MAX_RETRIES: ${MLFLOW_HTTP_REQUEST_MAX_RETRIES:-1}
+      MLFLOW_HTTP_REQUEST_TIMEOUT: ${MLFLOW_HTTP_REQUEST_TIMEOUT:-4}
+      ML_LOAD_ATTEMPTS: ${ML_LOAD_ATTEMPTS:-3}
+      ML_LOAD_INTERVAL_SECONDS: ${ML_LOAD_INTERVAL_SECONDS:-2}
     depends_on:
       db:
         condition: service_healthy
@@ -164,7 +175,8 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      # 60s покрывает bounded load_bundle (~12с) + инициализацию приложения с запасом.
+      start_period: 60s
     # Только внутренний порт: наружу API выводит Traefik (Dokploy), см. docs/deploy.md.
     expose:
       - "8000"

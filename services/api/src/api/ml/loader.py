@@ -22,10 +22,10 @@ logger = structlog.get_logger(__name__)
 def _load_volatility(settings: ApiSettings) -> LoadedVolatilityModel:
     """Загрузить модель волатильности по алиасу + версию реестра (одна попытка)."""
     mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
-    client = MlflowClient(tracking_uri=settings.mlflow_tracking_uri)
     uri = f"models:/{settings.ml_volatility_model}@{settings.ml_model_alias}"
     loaded = mlflow.pyfunc.load_model(uri)
     model = loaded.unwrap_python_model()
+    client = MlflowClient(tracking_uri=settings.mlflow_tracking_uri)
     version = client.get_model_version_by_alias(
         settings.ml_volatility_model, settings.ml_model_alias
     ).version

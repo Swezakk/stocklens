@@ -12,6 +12,7 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
+import structlog
 from starlette.concurrency import run_in_threadpool
 from stocklens_core.enums import PredictionKind
 from stocklens_core.models.market import Security
@@ -30,6 +31,7 @@ from api.repositories.protocols import (
     VolatilityFeatureRepository,
 )
 from api.schemas.predict import (
+    ForecastRefreshSummary,
     VolatilityForecastHistoryOut,
     VolatilityForecastPoint,
     VolatilityMetrics,
@@ -40,6 +42,11 @@ from api.schemas.predict import (
 #: Минимум ненулевых значений rv_target для устойчивой оценки режима волатильности.
 #: Ниже 60 распределение слишком бедно для осмысленного 0.80-квантиля.
 MIN_REGIME_OBSERVATIONS = 60
+
+#: Размер страницы при переборе активных бумаг. Цикл пагинирует до упора — это не потолок.
+_REFRESH_PAGE_SIZE = 500
+
+logger = structlog.get_logger(__name__)
 
 #: Горизонт прогноза по умолчанию (дни) — используется когда модель не загружена,
 #: чтобы build_serving_frame мог рассчитать rv_target (forward-window).
@@ -74,6 +81,58 @@ class PredictionService:
         self._prediction_repo = prediction_repo
         self._bundle = bundle
         self._settings = settings
+
+    async def refresh_active_forecasts(self) -> ForecastRefreshSummary:
+        """Сгенерировать прогнозы волатильности для всех активных бумаг.
+
+        Короткий выход: если модель не загружена, возвращает нулевой итог немедленно —
+        ни один тикер не обрабатывается и predict_volatility не вызывается.
+
+        Изоляция ошибок: SecurityNotFoundError и InsufficientHistoryError считаются
+        ожидаемыми (skipped); любое другое исключение логируется и считается failed,
+        но цикл продолжается до конца.
+        """
+        if self._bundle.volatility is None:
+            return ForecastRefreshSummary(generated=0, skipped=0, failed=0, total=0)
+
+        generated = 0
+        skipped = 0
+        failed = 0
+        offset = 0
+
+        while True:
+            page, total = await self._security_repo.list_securities(
+                is_active=True,
+                limit=_REFRESH_PAGE_SIZE,
+                offset=offset,
+            )
+            for security in page:
+                try:
+                    await self.predict_volatility(security.ticker)
+                    generated += 1
+                except (SecurityNotFoundError, InsufficientHistoryError):
+                    skipped += 1
+                except Exception:
+                    failed += 1
+                    logger.exception("forecast_refresh_ticker_failed", ticker=security.ticker)
+
+            offset += len(page)
+            if offset >= total:
+                break
+
+        logger.info(
+            "forecast_refresh_complete",
+            generated=generated,
+            skipped=skipped,
+            failed=failed,
+            total=generated + skipped + failed,
+        )
+        return ForecastRefreshSummary(
+            generated=generated,
+            skipped=skipped,
+            failed=failed,
+            total=generated + skipped + failed,
+        )
 
     async def predict_volatility(self, ticker: str) -> VolatilityPredictionOut:
         """Прогноз 5-дневной волатильности по тикеру (sqrt прогноза дисперсии)."""

@@ -66,6 +66,22 @@ class VolatilityForecastHistoryOut(BaseModel):
     points: list[VolatilityForecastPoint]
 
 
+class ForecastRefreshSummary(BaseModel):
+    """Итог пакетной генерации прогнозов (возвращается сервисным методом, не HTTP-ответом)."""
+
+    generated: int
+    skipped: int
+    failed: int
+    total: int
+
+
+class ForecastRefreshOut(BaseModel):
+    """Ответ эндпоинта POST /bot/forecasts/refresh."""
+
+    accepted: bool
+    reason: str | None = None
+
+
 class VolatilityRegime(BaseModel):
     """Режим волатильности: прогноз vs исторический квантиль (ml-spec §9).
 

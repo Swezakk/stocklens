@@ -4,11 +4,14 @@ from datetime import date, datetime
 from typing import Annotated
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, BackgroundTasks, Query, Request
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.responses import Response
 
 from api.core.cache import AlertNxStore, RedisCache
 from api.core.db import RedisDep, SessionDep, SettingsDep
+from api.core.settings import ApiSettings
+from api.ml.bundle import ModelBundle
 from api.ml.deps import MlBundleDep
 from api.repositories.alert import (
     SqlCloseRepository,
@@ -20,6 +23,7 @@ from api.repositories.prediction import SqlPredictionRepository
 from api.repositories.security import SqlSecurityRepository
 from api.repositories.volatility_features import SqlVolatilityFeatureRepository
 from api.schemas.bot import DigestClaimOut, PendingAlertOut, SubscriptionIn, SubscriptionOut
+from api.schemas.predict import ForecastRefreshOut
 from api.services.alert_evaluation import AlertEvaluationService
 from api.services.bot import BotSubscriptionService
 from api.services.prediction import PredictionService
@@ -142,6 +146,55 @@ async def get_pending_alerts(
 ) -> list[PendingAlertOut]:
     """POST /bot/alerts/pending — список сработавших алертов."""
     return await _evaluation_service(session, redis, bundle, settings).collect_pending()
+
+
+async def _run_forecast_refresh(
+    session_factory: async_sessionmaker[AsyncSession],
+    bundle: ModelBundle,
+    settings: ApiSettings,
+) -> None:
+    """Фоновая задача: открыть собственную сессию и запустить пакетную генерацию прогнозов.
+
+    Сессия открывается здесь, а не берётся из запроса: к моменту выполнения задачи
+    request-сессия уже закрыта (202 отправлен).
+    """
+    async with session_factory() as session:
+        service = PredictionService(
+            security_repo=SqlSecurityRepository(session),
+            feature_repo=SqlVolatilityFeatureRepository(session),
+            prediction_repo=SqlPredictionRepository(session),
+            bundle=bundle,
+            settings=settings,
+        )
+        await service.refresh_active_forecasts()
+
+
+@router.post(
+    "/forecasts/refresh",
+    response_model=ForecastRefreshOut,
+    summary="Пакетная генерация прогнозов волатильности",
+    description=(
+        "Запланировать фоновую генерацию прогнозов волатильности для всех активных бумаг. "
+        "Если модель недоступна — возвращает accepted=false (HTTP 200) без фоновой задачи. "
+        "Иначе — ставит задачу в очередь и немедленно возвращает HTTP 202. "
+        "Вызывается ботом по расписанию."
+    ),
+)
+async def refresh_forecasts(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    bundle: MlBundleDep,
+    settings: SettingsDep,
+    response: Response,
+) -> ForecastRefreshOut:
+    """POST /bot/forecasts/refresh — пакетная генерация прогнозов для всех активных бумаг."""
+    if bundle.volatility is None:
+        return ForecastRefreshOut(accepted=False, reason="model unavailable")
+
+    session_factory: async_sessionmaker[AsyncSession] = request.app.state.session_factory
+    background_tasks.add_task(_run_forecast_refresh, session_factory, bundle, settings)
+    response.status_code = 202
+    return ForecastRefreshOut(accepted=True, reason=None)
 
 
 @router.post(

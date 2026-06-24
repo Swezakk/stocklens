@@ -142,6 +142,12 @@ services:
       AUTH_OWNER_USERNAME: ${AUTH_OWNER_USERNAME:-admin}
       AUTH_OWNER_PASSWORD: ${AUTH_OWNER_PASSWORD}
       AUTH_TOKEN_TTL_SECONDS: ${AUTH_TOKEN_TTL_SECONDS:-3600}
+      # ML-инференс волатильности (ml-spec §8/§9). URI реестра по умолчанию — сервис mlflow.
+      # required=false на старте: без зарегистрированной модели api остаётся healthy
+      # (readiness репортит модель degraded), иначе dashboard/bot (depends_on healthy) не
+      # поднимутся. После регистрации модели → ML_REQUIRED_FOR_READY=true в env Dokploy.
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
+      ML_REQUIRED_FOR_READY: ${ML_REQUIRED_FOR_READY:-false}
     depends_on:
       db:
         condition: service_healthy

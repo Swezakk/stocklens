@@ -11,15 +11,23 @@ render_chart. Семантика цвета: candlestick up/down и дивиде
 мульти-серии — categorical-палитра; частотные слова — монохром-тил.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 
 import plotly.graph_objects as go
 import streamlit as st
 
 from dashboard import theme
-from dashboard.api_client.dto import CandleOut, DividendOut, FrontierPoint
+from dashboard.api_client.dto import (
+    CandleOut,
+    DividendOut,
+    FrontierPoint,
+    VolatilityForecastPointOut,
+)
 from dashboard.components.transforms import DeltaDirection, SentimentDayPoint
+
+#: Перевод доли волатильности в проценты для оси графика (0.03 → 3.0%).
+_VOLATILITY_PERCENT = 100.0
 
 #: Высота субплота объёма относительно цены (candlestick доминирует, объём — подложка).
 _VOLUME_ROW_HEIGHT = 0.22
@@ -228,6 +236,59 @@ def build_portfolio_vs_imoex_chart(
             line={"color": theme.MUTED_TEXT, "width": 1.5, "dash": "dash"},
         )
     )
+    return theme.apply_dark_template(fig)
+
+
+def _present_series(
+    points: Sequence[VolatilityForecastPointOut],
+    pick: Callable[[VolatilityForecastPointOut], float | None],
+) -> tuple[list[date], list[float]]:
+    """Извлечь (даты, значения в %) точек, где выбранное значение задано (None пропускаются).
+
+    Цикл (не comprehension) — чтобы mypy сузил ``float | None`` до ``float`` после guard'а.
+    """
+    dates: list[date] = []
+    values: list[float] = []
+    for point in points:
+        value = pick(point)
+        if value is not None:
+            dates.append(point.date)
+            values.append(value * _VOLATILITY_PERCENT)
+    return dates, values
+
+
+def build_forecast_vs_actual_chart(
+    points: Sequence[VolatilityForecastPointOut],
+) -> go.Figure:
+    """Прогноз волатильности vs реализованная (sqrt(rv_target)) за окно (DESIGN §5, ml-spec §10).
+
+    Реализованная (факт) — плотная линия-референс приглушённым цветом; выпущенные прогнозы —
+    точки акцент-тилом поверх (видно над/недо-прогноз). Это track record выпущенных прогнозов,
+    не walk-forward кривая (метрика QLIKE — оффлайн, на плашке). Реализованная серия обрывается
+    ~5 торговых дней до правого края (исход 5-дн окна ещё не известен) — это «исход ожидается».
+    """
+    realized_dates, realized_pcts = _present_series(points, lambda point: point.realized)
+    forecast_dates, forecast_pcts = _present_series(points, lambda point: point.forecast)
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=realized_dates,
+            y=realized_pcts,
+            name="Факт (реализ.)",
+            mode="lines",
+            line={"color": theme.MUTED_TEXT, "width": 1.5},
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=forecast_dates,
+            y=forecast_pcts,
+            name="Прогноз",
+            mode="markers",
+            marker={"color": theme.ACCENT, "size": 8},
+        )
+    )
+    fig.update_layout(yaxis_title="Волатильность, % (5 дн)")
     return theme.apply_dark_template(fig)
 
 

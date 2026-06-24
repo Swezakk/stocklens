@@ -34,6 +34,7 @@ from dashboard.api_client.dto import (
     PortfolioSummaryOut,
     PositionOut,
     SecurityPage,
+    VolatilityForecastHistoryOut,
 )
 from dashboard.api_client.errors import (
     ApiServerError,
@@ -217,6 +218,15 @@ class ApiClient:
     def get_movers(self, limit: int = 5) -> MoversOut:
         """GET /data/movers — лидеры роста и падения (не пагинированный ответ)."""
         return MoversOut.model_validate(self.get("/data/movers", {"limit": limit}))
+
+    def get_volatility_forecast_history(
+        self, ticker: str, lookback: int = 90
+    ) -> VolatilityForecastHistoryOut:
+        """GET /predict/volatility/history — прогноз vs реализованная за окно (не пагинирован)."""
+        params = {"ticker": ticker, "lookback": lookback}
+        return VolatilityForecastHistoryOut.model_validate(
+            self.get("/predict/volatility/history", params)
+        )
 
     def get_securities(
         self,

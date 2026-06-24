@@ -41,6 +41,7 @@ from dashboard.api_client.dto import (
     PortfolioSummaryOut,
     SecurityOut,
     SecurityPage,
+    VolatilityForecastHistoryOut,
 )
 from dashboard.settings import get_settings
 
@@ -159,6 +160,16 @@ def fetch_key_rate(
 def fetch_movers(_client: ApiClient, limit: int = 5) -> MoversOut:
     """Кэш-обёртка GET /data/movers."""
     return _client.get_movers(limit=limit)
+
+
+@st.cache_data(ttl=_CACHE_TTL_SECONDS, show_spinner=False)
+def fetch_volatility_forecast_history(
+    _client: ApiClient,
+    ticker: str,
+    lookback: int = 90,
+) -> VolatilityForecastHistoryOut:
+    """Кэш-обёртка GET /predict/volatility/history (не пагинирован — один ответ с рядом точек)."""
+    return _client.get_volatility_forecast_history(ticker=ticker, lookback=lookback)
 
 
 @st.cache_data(ttl=_CACHE_TTL_SECONDS, show_spinner=False)

@@ -349,11 +349,13 @@ Streamlit перезапускает скрипт на **каждое** взаи
 | **1. Обзор** | `GET /data/index` · `/data/currency-rates` · `/data/key-rate` · `/data/movers` · `/monitoring/runs` (время обновления) | `Page[IndexValueOut]`, `Page[CurrencyRateOut]`, `Page[KeyRateOut]`, `MoversOut`, `Page[CollectorRunOut]` |
 | **2. Акции** | `GET /data/securities` · `/data/candles?ticker&date_from&date_to` · `/data/dividends?ticker` | `Page[SecurityOut]`, `Page[CandleOut]`, `Page[DividendOut]` |
 | **3. Новости** | `GET /data/news?ticker&sentiment&date_from&date_to` | `Page[NewsOut]` (с `SentimentOut`) |
+| **4. Прогнозы** | `GET /data/securities` · `GET /predict/volatility/history?ticker&lookback` | `Page[SecurityOut]`, `VolatilityForecastHistoryOut` |
 | **5. Портфель** | `GET /portfolio/summary` · `GET/POST/DELETE /portfolio/positions` · `POST /portfolio/optimize` · `GET /portfolio/backtest` | `PortfolioSummaryOut`, `PositionOut`, `OptimizeResult`, `BacktestResultOut` |
 | **6. Мониторинг** | `GET /monitoring/runs` | `Page[CollectorRunOut]` |
 
-Все списковые ответы — конверт `Page[T]` (`items/total/limit/offset`); `/data/movers` —
-не пагинирован. Страница «4. Прогнозы» — **после ML** (нет `predict/*`).
+Все списковые ответы — конверт `Page[T]` (`items/total/limit/offset`); `/data/movers` и
+`/predict/volatility/history` — не пагинированы. Страница «4. Прогнозы» — волатильность
+реализована; тренд (P↑+SHAP) ждёт trend-модели.
 
 > **Стр. 3 — агрегаты над корпусом (граница, не молчаливое усечение).** «Динамика тона» и
 > «частотные слова» считаются над корпусом новостей, а `/data/news` пагинирован
@@ -378,7 +380,11 @@ Streamlit перезапускает скрипт на **каждое** взаи
    источник + дата + `SentimentChip` + тикеры. Виджеты: динамика тона по бумаге (линия),
    топ частотных слов (бар) — над period-bounded корпусом с **видимым размером выборки**
    (см. границу в §9).
-4. **Прогнозы.** *Отложена до фазы ML* (волатильность vs факт, тренд+SHAP, версия модели).
+4. **Прогнозы.** Sidebar: тикер, период. Волатильность: график «прогноз vs факт»
+   (реализованная `sqrt(rv_target)` из API — тот же показатель, что таргетирует модель;
+   приглушённая линия факта + акцент-точки прогнозов) + плашка QLIKE модели/baseline +
+   версия модели. Track record выпущенных прогнозов, не walk-forward. Тренд (P↑+SHAP) —
+   честная строка до появления trend-модели.
 5. **Портфель.** Таблица позиций + P&L; форма добавления/удаления позиции (единственный
    write-путь дашборда). Графики: equity-кривая портфель vs IMOEX (бэктест), efficient
    frontier, риск-метрики (Sharpe, max drawdown) карточками vs бенчмарк.

@@ -279,6 +279,39 @@ class BacktestResultOut(BaseModel):
     equity_curve: list[EquityPointOut]
 
 
+class VolatilityMetricsOut(BaseModel):
+    """Метрики модели волатильности vs naive baseline (walk-forward QLIKE/RMSE)."""
+
+    qlike: float
+    qlike_baseline: float
+    rmse: float
+
+
+class VolatilityForecastPointOut(BaseModel):
+    """Точка ряда «прогноз vs реализованная волатильность» (ml-spec §10)."""
+
+    date: date
+    forecast: float | None = None
+    realized: float | None = None
+
+
+class VolatilityForecastHistoryOut(BaseModel):
+    """История прогнозов волатильности с реализованными значениями (ml-spec §10).
+
+    ``protected_namespaces=()`` — поле ``model`` иначе конфликтует с защищённым
+    неймспейсом Pydantic v2 (``model_*``). ``model``/``metrics_vs_baseline`` — ``None``,
+    если модель в API не загружена (degraded readiness): реализованная серия всё равно есть.
+    """
+
+    model_config = {"protected_namespaces": ()}
+
+    ticker: str
+    model: str | None
+    model_version: str | None
+    metrics_vs_baseline: VolatilityMetricsOut | None
+    points: list[VolatilityForecastPointOut]
+
+
 # Конкретные подклассы Page[T] для кэширования: параметризованный дженерик Page[NewsOut]
 # имеет qualname «Page[NewsOut]» (со скобками), который не находится как атрибут модуля,
 # поэтому pickle Streamlit (st.cache_data) падает на нём. Именованные подклассы получают

@@ -6,9 +6,7 @@
 2. Инжект тонкого CSS-слоя один раз (``assets/dashboard.css``, §5).
 3. ``require_auth`` — парольный гейт до навигации: на неаутентифицированном пути он
    вызывает ``st.stop`` и навигация не строится (§7).
-4. ``st.navigation`` с одной секцией из пяти страниц + ``.run()`` (§4, §10).
-
-Страница «Прогнозы» отложена до фазы ML (DESIGN §10.4) и в навигацию не входит.
+4. ``st.navigation`` с одной секцией из шести страниц + ``.run()`` (§4, §10).
 """
 
 from pathlib import Path
@@ -18,7 +16,7 @@ from streamlit.navigation.page import StreamlitPage
 
 from dashboard.auth import get_api_client, require_auth
 from dashboard.components.sidebar import render_market_context
-from dashboard.pages import monitoring, news, overview, portfolio, stocks
+from dashboard.pages import forecasts, monitoring, news, overview, portfolio, stocks
 
 #: Заголовок вкладки браузера (RU-копи — пользовательская строка).
 _PAGE_TITLE = "StockLens"
@@ -40,13 +38,12 @@ def _inject_css() -> None:
 
 
 def _build_navigation() -> StreamlitPage:
-    """Собрать навигацию: одна секция из пяти страниц с RU-заголовками и Material-иконками.
+    """Собрать навигацию: одна секция из шести страниц с RU-заголовками и Material-иконками.
 
-    Каждая страница — callable ``render`` под ``st.Page`` (DESIGN §4, §10). Все пять
+    Каждая страница — callable ``render`` под ``st.Page`` (DESIGN §4, §10). Все шесть
     callable называются ``render``, поэтому ``url_path`` задаётся явно: иначе Streamlit
     выводит один и тот же pathname из имени функции и падает на не-уникальных путях.
-    Первая страница — ``default`` (лендинг навигации). Страница «Прогнозы» отложена до
-    фазы ML и здесь отсутствует.
+    Первая страница — ``default`` (лендинг навигации).
     """
     pages = [
         st.Page(
@@ -63,6 +60,12 @@ def _build_navigation() -> StreamlitPage:
             title="Портфель",
             icon=":material/account_balance_wallet:",
             url_path="portfolio",
+        ),
+        st.Page(
+            forecasts.render,
+            title="Прогнозы",
+            icon=":material/query_stats:",
+            url_path="forecasts",
         ),
         st.Page(
             monitoring.render,

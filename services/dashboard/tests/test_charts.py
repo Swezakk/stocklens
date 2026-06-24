@@ -11,12 +11,18 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from dashboard.api_client.dto import CandleOut, DividendOut, FrontierPoint
+from dashboard.api_client.dto import (
+    CandleOut,
+    DividendOut,
+    FrontierPoint,
+    VolatilityForecastPointOut,
+)
 from dashboard.components.charts import (
     _rebase_to_100,
     build_candlestick_chart,
     build_comparison_chart,
     build_efficient_frontier_chart,
+    build_forecast_vs_actual_chart,
     build_index_line_chart,
     build_portfolio_vs_imoex_chart,
     build_sentiment_trend_chart,
@@ -169,6 +175,38 @@ def test_sentiment_trend_chart_colors_markers_by_sign() -> None:
     marker_colors = tuple(fig.data[0].marker.color)
     # Точный нейтральный центр (0.5) красится FLAT — иначе ветка `else` оставалась бы непокрытой.
     assert marker_colors == (theme.UP, theme.DOWN, theme.FLAT)
+
+
+def test_forecast_vs_actual_chart_realized_line_and_forecast_markers() -> None:
+    points = [
+        VolatilityForecastPointOut(date=date(2026, 6, 18), forecast=0.03, realized=0.025),
+        VolatilityForecastPointOut(date=date(2026, 6, 19), forecast=0.04, realized=0.035),
+    ]
+    fig = build_forecast_vs_actual_chart(points)
+    assert fig.to_json()
+    assert len(fig.data) == 2
+    # Факт — приглушённая линия; прогноз — акцент-тил точки; волатильность в процентах (×100).
+    assert fig.data[0].name == "Факт (реализ.)"
+    assert fig.data[0].mode == "lines"
+    assert fig.data[0].line.color == theme.MUTED_TEXT
+    assert fig.data[0].y == pytest.approx((2.5, 3.5))
+    assert fig.data[1].name == "Прогноз"
+    assert fig.data[1].mode == "markers"
+    assert fig.data[1].marker.color == theme.ACCENT
+    assert fig.data[1].y == pytest.approx((3.0, 4.0))
+
+
+def test_forecast_vs_actual_chart_skips_none_values() -> None:
+    points = [
+        VolatilityForecastPointOut(date=date(2026, 6, 18), forecast=0.03, realized=None),
+        VolatilityForecastPointOut(date=date(2026, 6, 19), forecast=None, realized=0.035),
+    ]
+    fig = build_forecast_vs_actual_chart(points)
+    # Реализованная линия — только дата с realized; прогноз-точки — только дата с forecast.
+    assert tuple(fig.data[0].x) == (date(2026, 6, 19),)
+    assert fig.data[0].y == pytest.approx((3.5,))
+    assert tuple(fig.data[1].x) == (date(2026, 6, 18),)
+    assert fig.data[1].y == pytest.approx((3.0,))
 
 
 def test_word_frequency_chart_serializes_with_accent_bars() -> None:

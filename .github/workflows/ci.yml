@@ -216,7 +216,7 @@ jobs:
           docker compose run --rm --no-deps dashboard streamlit --version
           docker compose run --rm --no-deps dashboard python -c "import dashboard.settings, dashboard.theme; from dashboard.api_client import fetch"
           docker compose run --rm --no-deps bot python -c "import bot, bot.handlers, bot.__main__"
-          docker compose run --rm --no-deps mlflow python -c "import psycopg, mlflow"
+          docker compose run --rm --no-deps mlflow python -c "import psycopg2, mlflow"
 
   publish:
     name: publish images (GHCR)

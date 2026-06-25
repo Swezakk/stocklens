@@ -2,14 +2,18 @@
 
 UI-оркестрация (`render`) не тестируется (тонкая); покрываются типизированные хелперы:
 сортировка тикеров, клэмп окна под границы эндпоинта, форматирование метрики,
-построение блока live-метрик.
+построение блоков live-метрик и форварда.
 """
 
-from dashboard.api_client.dto import SecurityOut, VolatilityMetricsOut
+from datetime import date
+
+from dashboard.api_client.dto import SecurityOut, VolatilityMetricsOut, VolatilityRegimeOut
 from dashboard.pages.forecasts import (
+    _build_forward_block,
     _build_live_block,
     _clamp_lookback,
     _format_metric,
+    _ForwardBlock,
     _LiveBlock,
     _ticker_options,
 )
@@ -77,3 +81,67 @@ def test_build_live_block_none_metrics_zero_n_shows_accumulating_with_zero() -> 
     assert block.is_accumulating is True
     assert "0" in block.annotation
     assert block.model_qlike is None
+
+
+def _regime(
+    *,
+    volatility: float = 0.041,
+    is_elevated: bool = False,
+    quantile: float = 0.90,
+    lookback: int = 252,
+    predicted_for: date = date(2026, 6, 20),
+) -> VolatilityRegimeOut:
+    """Вспомогательная фабрика VolatilityRegimeOut с разумными дефолтами."""
+    return VolatilityRegimeOut(
+        ticker="SBER",
+        predicted_for=predicted_for,
+        volatility=volatility,
+        threshold=0.035,
+        is_elevated=is_elevated,
+        quantile=quantile,
+        lookback=lookback,
+    )
+
+
+def test_build_forward_block_present_returns_formatted_vol_pct() -> None:
+    """forward присутствует: vol_pct содержит значение в процентах с одним знаком."""
+    block = _build_forward_block(_regime(volatility=0.041))
+    assert isinstance(block, _ForwardBlock)
+    assert block.vol_pct == "4.1%"
+
+
+def test_build_forward_block_present_returns_formatted_date() -> None:
+    """forward присутствует: date_label содержит дату в формате DD.MM.YYYY."""
+    block = _build_forward_block(_regime(predicted_for=date(2026, 6, 20)))
+    assert isinstance(block, _ForwardBlock)
+    assert block.date_label == "20.06.2026"
+
+
+def test_build_forward_block_normal_regime_label() -> None:
+    """is_elevated=False → режим «Нормальный»."""
+    block = _build_forward_block(_regime(is_elevated=False))
+    assert block.regime_label == "Нормальный"
+    assert block.is_elevated is False
+
+
+def test_build_forward_block_elevated_regime_label() -> None:
+    """is_elevated=True → режим «Повышенный»."""
+    block = _build_forward_block(_regime(is_elevated=True))
+    assert block.regime_label == "Повышенный"
+    assert block.is_elevated is True
+
+
+def test_build_forward_block_caption_contains_quantile_and_lookback() -> None:
+    """Подпись содержит перцентиль и число торговых дней lookback."""
+    block = _build_forward_block(_regime(quantile=0.90, lookback=252))
+    # Перцентиль отображается как целое: 0.90 → «90»
+    assert "90" in block.caption
+    assert "252" in block.caption
+
+
+def test_build_forward_block_none_returns_unavailable() -> None:
+    """forward=None: is_available=False, приложение не падает."""
+    block = _build_forward_block(None)
+    assert isinstance(block, _ForwardBlock)
+    assert block.is_available is False
+    # Прочие поля не должны вызываться — проверяем только is_available.

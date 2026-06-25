@@ -16,8 +16,10 @@ from dashboard.api_client.dto import (
     DividendOut,
     FrontierPoint,
     VolatilityForecastPointOut,
+    VolatilityRegimeOut,
 )
 from dashboard.components.charts import (
+    _add_business_days,
     _rebase_to_100,
     build_candlestick_chart,
     build_comparison_chart,
@@ -214,3 +216,55 @@ def test_word_frequency_chart_serializes_with_accent_bars() -> None:
     assert fig.to_json()
     assert fig.data[0].marker.color == theme.ACCENT
     assert fig.data[0].orientation == "h"
+
+
+def test_add_business_days_skips_weekends_from_friday() -> None:
+    """Пятница + 5 рабочих дней = следующая пятница (перескакивая сб/вс)."""
+    friday = date(2026, 6, 19)  # пятница
+    assert friday.weekday() == 4  # убедиться, что это действительно пятница
+    result = _add_business_days(friday, 5)
+    assert result == date(2026, 6, 26)  # следующая пятница
+
+
+def test_add_business_days_from_monday() -> None:
+    """Понедельник + 5 рабочих дней = следующий понедельник."""
+    monday = date(2026, 6, 22)  # понедельник
+    assert monday.weekday() == 0
+    result = _add_business_days(monday, 5)
+    assert result == date(2026, 6, 29)
+
+
+def test_add_business_days_zero_returns_start() -> None:
+    """0 рабочих дней → возвращается стартовая дата."""
+    start = date(2026, 6, 20)
+    assert _add_business_days(start, 0) == start
+
+
+def test_forecast_vs_actual_chart_without_forward_keeps_two_traces() -> None:
+    """Без forward (None по умолчанию) число трейсов = 2 (регрессия не допускается)."""
+    points = [
+        VolatilityForecastPointOut(date=date(2026, 6, 18), forecast=0.03, realized=0.025),
+    ]
+    fig = build_forecast_vs_actual_chart(points)
+    assert len(fig.data) == 2
+
+
+def test_forecast_vs_actual_chart_with_forward_adds_third_trace() -> None:
+    """С forward добавляется третий трейс — пунктирная линия прогноза вперёд."""
+    points = [
+        VolatilityForecastPointOut(date=date(2026, 6, 18), forecast=0.03, realized=0.025),
+    ]
+    forward = VolatilityRegimeOut(
+        ticker="SBER",
+        predicted_for=date(2026, 6, 20),
+        volatility=0.041,
+        threshold=0.035,
+        is_elevated=True,
+        quantile=0.90,
+        lookback=252,
+    )
+    fig = build_forecast_vs_actual_chart(points, forward=forward)
+    assert len(fig.data) == 3
+    trace = fig.data[2]
+    assert trace.name == "Прогноз вперёд (5 дн)"
+    assert trace.line.dash == "dash"

@@ -1,13 +1,15 @@
 """Страница «Прогнозы» дашборда (DESIGN.md §10.4, ml-spec §10).
 
-Волатильность: график «прогноз vs факт» (реализованная за последующие 5 дней) + плашка
-метрик QLIKE модели vs baseline + версия модели; выбор тикера. Тренд (P↑ + SHAP) —
-отложен до появления trend-модели (показана честная строка, не интерактивная заглушка).
+Волатильность: форвардный сигнал на 5 дн (вверху) + график «прогноз vs факт»
+(реализованная за последующие 5 дней) + плашка метрик QLIKE модели vs baseline +
+версия модели; выбор тикера. Тренд (P↑ + SHAP) — отложен до появления trend-модели
+(показана честная строка, не интерактивная заглушка).
 
 `render()` — тонкая оркестрация: нетривиальные преобразования вынесены в чистые
 типизированные хелперы (`_ticker_options`, `_clamp_lookback`, `_format_metric`,
-`_build_live_block`), покрытые unit-тестами. Каждый сетевой вызов обрабатывает три
-ветки (успех / ошибка сервера / сеть недоступна) через `components.feedback`.
+`_build_live_block`, `_build_forward_block`), покрытые unit-тестами. Каждый сетевой
+вызов обрабатывает три ветки (успех / ошибка сервера / сеть недоступна) через
+`components.feedback`.
 
 Источник «факта» — реализованная волатильность `sqrt(rv_target)` из API (тот же показатель,
 что таргетирует модель): дашборд её не считает (инвариант №3). График — track record
@@ -25,7 +27,12 @@ from typing import NamedTuple
 import streamlit as st
 
 from dashboard.api_client.client import ApiClient
-from dashboard.api_client.dto import SecurityOut, VolatilityForecastHistoryOut, VolatilityMetricsOut
+from dashboard.api_client.dto import (
+    SecurityOut,
+    VolatilityForecastHistoryOut,
+    VolatilityMetricsOut,
+    VolatilityRegimeOut,
+)
 from dashboard.api_client.errors import ApiError
 from dashboard.api_client.fetch import fetch_all_securities, fetch_volatility_forecast_history
 from dashboard.auth import get_api_client
@@ -69,6 +76,66 @@ _NO_MODEL_NOTE = (
     "показана только реализованная волатильность."
 )
 _TREND_NOTE = "Прогноз тренда (вероятность роста и SHAP-объяснение) — с появлением trend-модели."
+
+_FORWARD_VOL_LABEL = "Прогноз волатильности (5 дн)"
+_FORWARD_REGIME_LABEL = "Режим"
+_FORWARD_DATE_LABEL = "По данным на"
+_FORWARD_REGIME_NORMAL = "Нормальный"
+_FORWARD_REGIME_ELEVATED = "Повышенный"
+_FORWARD_ELEVATED_WARNING = "повышенная волатильность"
+_FORWARD_UNAVAILABLE = "Текущий прогноз недоступен (модель не загружена или мало истории)."
+_FORWARD_CAPTION_TEMPLATE = (
+    "Действующий сигнал: ожидаемая волатильность на ближайшие 5 торговых дней. "
+    "«Повышенный» = выше {quantile_pct:.0f}-го перцентиля за {lookback} дн."
+)
+
+_VOL_PERCENT = 100.0
+
+_DATE_FORMAT = "%d.%m.%Y"
+
+
+class _ForwardBlock(NamedTuple):
+    """Данные для отрисовки форвардного блока волатильности (5 дн).
+
+    ``is_available=False`` когда forward=None (модель не загружена / мало истории) —
+    остальные поля в этом случае не используются. Хелпер ``_build_forward_block`` гарантирует
+    валидный объект в обоих состояниях, поэтому ``_render_forward`` только ветвится по флагу.
+    """
+
+    is_available: bool
+    vol_pct: str
+    regime_label: str
+    is_elevated: bool
+    date_label: str
+    caption: str
+
+
+def _build_forward_block(forward: VolatilityRegimeOut | None) -> _ForwardBlock:
+    """Построить данные форвардного блока из ``VolatilityRegimeOut`` или ``None``.
+
+    Чистая функция без зависимостей от Streamlit — покрывается unit-тестами.
+    """
+    if forward is None:
+        return _ForwardBlock(
+            is_available=False,
+            vol_pct="",
+            regime_label="",
+            is_elevated=False,
+            date_label="",
+            caption="",
+        )
+    regime_label = _FORWARD_REGIME_ELEVATED if forward.is_elevated else _FORWARD_REGIME_NORMAL
+    return _ForwardBlock(
+        is_available=True,
+        vol_pct=f"{forward.volatility * _VOL_PERCENT:.1f}%",
+        regime_label=regime_label,
+        is_elevated=forward.is_elevated,
+        date_label=forward.predicted_for.strftime(_DATE_FORMAT),
+        caption=_FORWARD_CAPTION_TEMPLATE.format(
+            quantile_pct=forward.quantile * _VOL_PERCENT,
+            lookback=forward.lookback,
+        ),
+    )
 
 
 class _LiveBlock(NamedTuple):
@@ -159,8 +226,26 @@ def _load_securities(client: ApiClient) -> list[SecurityOut] | None:
         return None
 
 
+def _render_forward(forward: VolatilityRegimeOut | None) -> None:
+    """Отрисовать форвардный блок (действующий сигнал) в верхней части секции волатильности."""
+    block = _build_forward_block(forward)
+    if not block.is_available:
+        st.caption(_FORWARD_UNAVAILABLE)
+        return
+    col_vol, col_regime, col_date = st.columns(3)
+    with col_vol:
+        stat_cell(_FORWARD_VOL_LABEL, block.vol_pct)
+    with col_regime:
+        stat_cell(_FORWARD_REGIME_LABEL, block.regime_label)
+    with col_date:
+        stat_cell(_FORWARD_DATE_LABEL, block.date_label)
+    if block.is_elevated:
+        st.warning(_FORWARD_ELEVATED_WARNING)
+    st.caption(block.caption)
+
+
 def _render_volatility(client: ApiClient, ticker: str, lookback: int) -> None:
-    """Отрисовать плашку метрик и график «прогноз vs факт» волатильности (три ветки вызова)."""
+    """Отрисовать форвардный сигнал, плашку метрик и график «прогноз vs факт» волатильности."""
     st.subheader(_VOL_SECTION)
     try:
         history = fetch_volatility_forecast_history(client, ticker=ticker, lookback=lookback)
@@ -168,12 +253,13 @@ def _render_volatility(client: ApiClient, ticker: str, lookback: int) -> None:
         render_error(exc.user_message)
         return
 
+    _render_forward(history.forward)
     _render_metrics(history)
     if not history.points:
         render_empty(_EMPTY_HISTORY.format(ticker=ticker))
         return
 
-    render_chart(build_forecast_vs_actual_chart(history.points))
+    render_chart(build_forecast_vs_actual_chart(history.points, forward=history.forward))
     st.caption(_CHART_NOTE)
 
 

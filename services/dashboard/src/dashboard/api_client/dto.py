@@ -295,6 +295,23 @@ class VolatilityForecastPointOut(BaseModel):
     realized: float | None = None
 
 
+class VolatilityRegimeOut(BaseModel):
+    """Режим волатильности на ближайшие 5 торговых дней (форвардный сигнал, ml-spec §10).
+
+    Зеркало API-поля ``forward`` в ``VolatilityForecastHistoryOut``.
+    ``volatility`` — дробная доля (0.041 = 4.1%); преобразование в проценты на стороне UI.
+    ``predicted_for`` совпадает с датой последней точки прогноза на графике.
+    """
+
+    ticker: str
+    predicted_for: date
+    volatility: float
+    threshold: float
+    is_elevated: bool
+    quantile: float
+    lookback: int
+
+
 class VolatilityForecastHistoryOut(BaseModel):
     """История прогнозов волатильности с реализованными значениями (ml-spec §10).
 
@@ -304,8 +321,9 @@ class VolatilityForecastHistoryOut(BaseModel):
 
     ``live_metrics`` — live QLIKE модели и baseline по реальным созревшим прогнозам;
     ``None`` когда недостаточно созревших пар (порог определяет API). ``live_sample_size`` —
-    число созревших пар (0 при отсутствии). Дефолты обеспечивают совместимость со старыми
-    ответами API, не содержащими этих полей.
+    число созревших пар (0 при отсутствии). ``forward`` — действующий форвардный сигнал на
+    5 торговых дней; ``None`` когда модель не загружена или мало истории.
+    Дефолты обеспечивают совместимость со старыми ответами API, не содержащими этих полей.
     """
 
     model_config = {"protected_namespaces": ()}
@@ -317,6 +335,7 @@ class VolatilityForecastHistoryOut(BaseModel):
     points: list[VolatilityForecastPointOut]
     live_metrics: VolatilityMetricsOut | None = None
     live_sample_size: int = 0
+    forward: VolatilityRegimeOut | None = None
 
 
 # Конкретные подклассы Page[T] для кэширования: параметризованный дженерик Page[NewsOut]

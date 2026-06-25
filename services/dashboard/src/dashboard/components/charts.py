@@ -12,7 +12,7 @@ render_chart. Семантика цвета: candlestick up/down и дивиде
 """
 
 from collections.abc import Callable, Mapping, Sequence
-from datetime import date
+from datetime import date, timedelta
 
 import plotly.graph_objects as go
 import streamlit as st
@@ -23,6 +23,7 @@ from dashboard.api_client.dto import (
     DividendOut,
     FrontierPoint,
     VolatilityForecastPointOut,
+    VolatilityRegimeOut,
 )
 from dashboard.components.transforms import DeltaDirection, SentimentDayPoint
 
@@ -38,6 +39,8 @@ _REBASE_BASE = 100.0
 #: Поля компактного спарклайна KPI: без осей и легенды — только форма линии (DESIGN §10).
 _SPARKLINE_MARGIN = {"l": 0, "r": 0, "t": 0, "b": 0}
 _SPARKLINE_HEIGHT = 48
+
+_WEEKDAY_SATURDAY = 5
 
 #: Цвета точки динамики тона по знаку среднего балла (diverging-логика, DESIGN §5).
 _SENTIMENT_TREND_COLORS: dict[DeltaDirection, str] = {
@@ -257,8 +260,25 @@ def _present_series(
     return dates, values
 
 
+def _add_business_days(start: date, n: int) -> date:
+    """Прибавить ``n`` рабочих дней к ``start``, пропуская субботу и воскресенье.
+
+    Чистый хелпер без зависимостей от календаря биржи: праздники не учитываются
+    (достаточно для визуального горизонта прогноза ~5 торговых дней).
+    """
+    result = start
+    remaining = n
+    while remaining > 0:
+        result += timedelta(days=1)
+        if result.weekday() < _WEEKDAY_SATURDAY:
+            remaining -= 1
+    return result
+
+
 def build_forecast_vs_actual_chart(
     points: Sequence[VolatilityForecastPointOut],
+    *,
+    forward: VolatilityRegimeOut | None = None,
 ) -> go.Figure:
     """Прогноз волатильности vs реализованная (sqrt(rv_target)) за окно (DESIGN §5, ml-spec §10).
 
@@ -266,6 +286,10 @@ def build_forecast_vs_actual_chart(
     точки акцент-тилом поверх (видно над/недо-прогноз). Это track record выпущенных прогнозов,
     не walk-forward кривая (метрика QLIKE — оффлайн, на плашке). Реализованная серия обрывается
     ~5 торговых дней до правого края (исход 5-дн окна ещё не известен) — это «исход ожидается».
+
+    ``forward`` — необязательный форвардный режим: когда задан, добавляется третий трейс —
+    пунктирная горизонтальная линия на уровне forward.volatility*100% от ``predicted_for``
+    на 5 рабочих дней вперёд. Отсутствие ``forward`` не меняет существующие два трейса.
     """
     realized_dates, realized_pcts = _present_series(points, lambda point: point.realized)
     forecast_dates, forecast_pcts = _present_series(points, lambda point: point.forecast)
@@ -288,8 +312,31 @@ def build_forecast_vs_actual_chart(
             marker={"color": theme.ACCENT, "size": 8},
         )
     )
+    if forward is not None:
+        _add_forward_projection(fig, forward)
     fig.update_layout(yaxis_title="Волатильность, % (5 дн)")
     return theme.apply_dark_template(fig)
+
+
+def _add_forward_projection(fig: go.Figure, forward: VolatilityRegimeOut) -> None:
+    """Добавить пунктирный горизонтальный трейс форвардного прогноза на 5 рабочих дней.
+
+    Уровень — forward.volatility * _VOLATILITY_PERCENT (та же %-шкала, что и основные трейсы).
+    Горизонт — от ``predicted_for`` до ``predicted_for + 5`` рабочих дней.
+    """
+    vol_pct = forward.volatility * _VOLATILITY_PERCENT
+    start = forward.predicted_for
+    end = _add_business_days(start, 5)
+    fig.add_trace(
+        go.Scatter(
+            x=[start, end],
+            y=[vol_pct, vol_pct],
+            name="Прогноз вперёд (5 дн)",
+            mode="lines",
+            line={"color": theme.ACCENT, "dash": "dash", "width": 2},
+            opacity=0.6,
+        )
+    )
 
 
 def build_efficient_frontier_chart(

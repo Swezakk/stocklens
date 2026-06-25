@@ -16,6 +16,8 @@ import structlog
 from starlette.concurrency import run_in_threadpool
 from stocklens_core.enums import PredictionKind
 from stocklens_core.models.market import Security
+from stocklens_ml.eval.metrics import qlike, rmse
+from stocklens_ml.models.baselines import rw_rv_forecast
 
 from api.core.exceptions import (
     InsufficientHistoryError,
@@ -42,6 +44,10 @@ from api.schemas.predict import (
 #: Минимум ненулевых значений rv_target для устойчивой оценки режима волатильности.
 #: Ниже 60 распределение слишком бедно для осмысленного 0.80-квантиля.
 MIN_REGIME_OBSERVATIONS = 60
+
+#: Минимум созревших пар (forecast + realized оба присутствуют, конечные, положительные)
+#: для вычисления live rolling QLIKE. Ниже этого порога live_metrics = None.
+MIN_LIVE_PAIRS = 10
 
 #: Размер страницы при переборе активных бумаг. Цикл пагинирует до упора — это не потолок.
 _REFRESH_PAGE_SIZE = 500
@@ -213,6 +219,8 @@ class PredictionService:
                 model_version=model_version,
                 metrics_vs_baseline=metrics,
                 points=[],
+                live_metrics=None,
+                live_sample_size=0,
             )
 
         all_dates: list[date] = [pd.Timestamp(d).date() for d in frame["trade_date"].tolist()]
@@ -232,12 +240,17 @@ class PredictionService:
 
         points = _join_forecast_points(window_dates, forecasts_by_date, realized_by_date)
 
+        baseline_by_date = _build_baseline_map(frame, all_dates, horizon)
+        live_metrics, live_sample_size = _compute_live_metrics(points, baseline_by_date)
+
         return VolatilityForecastHistoryOut(
             ticker=security.ticker,
             model=model_name,
             model_version=model_version,
             metrics_vs_baseline=metrics,
             points=points,
+            live_metrics=live_metrics,
+            live_sample_size=live_sample_size,
         )
 
     async def _forecast(self, ticker: str) -> _Forecast:
@@ -340,3 +353,85 @@ def _join_forecast_points(
         if forecast is not None or realized is not None:
             points.append(VolatilityForecastPoint(date=d, forecast=forecast, realized=realized))
     return points
+
+
+def _build_baseline_map(
+    frame: pd.DataFrame, all_dates: list[date], horizon: int
+) -> dict[date, float]:
+    """Построить {trade_date: rw_rv_forecast} — baseline в единицах дисперсии (Σr²).
+
+    Позиционное выравнивание идентично _build_realized_map: индекс массива = индекс all_dates.
+    NaN в начале ряда (первые horizon строк) — rolling не заполнен, дата в map не попадает.
+    """
+    baseline_series = rw_rv_forecast(frame["r"], horizon)
+    baseline_arr = baseline_series.to_numpy(dtype=float)
+    result: dict[date, float] = {}
+    for i, d in enumerate(all_dates):
+        val = baseline_arr[i]
+        if np.isfinite(val) and val > 0.0:
+            result[d] = float(val)
+    return result
+
+
+def _compute_live_metrics(
+    points: list[VolatilityForecastPoint],
+    baseline_by_date: dict[date, float],
+) -> tuple[VolatilityMetrics | None, int]:
+    """Вычислить live rolling QLIKE/RMSE по созревшим парам (forecast и realized оба есть).
+
+    Возвращает (live_metrics, live_sample_size). live_metrics = None если пар < MIN_LIVE_PAIRS.
+    h, RV, b объединены joint-маской чтобы model-QLIKE и baseline-QLIKE считались по одному n.
+    """
+    matured = [
+        (p.date, p.forecast, p.realized)
+        for p in points
+        if p.forecast is not None and p.realized is not None
+    ]
+
+    if not matured:
+        return None, 0
+
+    dates_m = [d for d, _, _ in matured]
+    h_arr = np.array([f**2 for _, f, _ in matured], dtype=np.float64)
+    rv_arr = np.array([r**2 for _, _, r in matured], dtype=np.float64)
+
+    b_list: list[float] = []
+    keep: list[bool] = []
+    for d in dates_m:
+        b = baseline_by_date.get(d)
+        if b is not None:
+            b_list.append(b)
+            keep.append(True)
+        else:
+            keep.append(False)
+
+    keep_arr = np.array(keep)
+    h_arr = h_arr[keep_arr]
+    rv_arr = rv_arr[keep_arr]
+    b_arr = np.array(b_list, dtype=np.float64)
+
+    joint_mask = (
+        np.isfinite(h_arr)
+        & (h_arr > 0.0)
+        & np.isfinite(rv_arr)
+        & (rv_arr > 0.0)
+        & np.isfinite(b_arr)
+        & (b_arr > 0.0)
+    )
+
+    live_sample_size = int(joint_mask.sum())
+    if live_sample_size < MIN_LIVE_PAIRS:
+        return None, live_sample_size
+
+    h_valid = h_arr[joint_mask]
+    rv_valid = rv_arr[joint_mask]
+    b_valid = b_arr[joint_mask]
+
+    return (
+        VolatilityMetrics(
+            qlike=qlike(rv_valid, h_valid),
+            qlike_baseline=qlike(rv_valid, b_valid),
+            rmse=rmse(rv_valid, h_valid),
+        ),
+        live_sample_size,
+    )

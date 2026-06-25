@@ -55,6 +55,10 @@ class VolatilityForecastHistoryOut(BaseModel):
     """История прогнозов волатильности с реализованными значениями для графика (ml-spec §10).
 
     ``protected_namespaces=()`` — поле ``model`` конфликтует с защищённым неймспейсом Pydantic v2.
+
+    ``live_metrics`` — скользящий QLIKE по созревшим парам (forecast + realized оба присутствуют).
+    Сопоставим с офлайновым ``metrics_vs_baseline`` (walk-forward); None если пар < 10.
+    ``live_sample_size`` — количество пар после joint-маски (конечные положительные h/RV/b).
     """
 
     model_config = {"protected_namespaces": ()}
@@ -64,6 +68,8 @@ class VolatilityForecastHistoryOut(BaseModel):
     model_version: str | None
     metrics_vs_baseline: VolatilityMetrics | None
     points: list[VolatilityForecastPoint]
+    live_metrics: VolatilityMetrics | None = None
+    live_sample_size: int = 0
 
 
 class ForecastRefreshSummary(BaseModel):

@@ -12,6 +12,7 @@ from dashboard.api_client.dto import (
     Page,
     PortfolioSummaryOut,
     SecurityOut,
+    VolatilityForecastHistoryOut,
 )
 from stocklens_core.enums import CollectorRunStatus, Currency, SentimentLabel
 
@@ -70,3 +71,34 @@ def test_optimization_strategy_mirrors_api_values() -> None:
 
 def test_currency_enum_imported_from_core() -> None:
     assert Currency.RUB.value == "RUB"
+
+
+def test_volatility_forecast_history_parses_without_live_fields() -> None:
+    """Ответ API без live_metrics/live_sample_size (старая версия) парсится без ошибок."""
+    payload = {
+        "ticker": "SBER",
+        "model": "garch",
+        "model_version": "v1.0",
+        "metrics_vs_baseline": {"qlike": 0.512, "qlike_baseline": 0.731, "rmse": 0.042},
+        "points": [],
+    }
+    history = VolatilityForecastHistoryOut.model_validate(payload)
+    assert history.live_metrics is None
+    assert history.live_sample_size == 0
+
+
+def test_volatility_forecast_history_parses_with_live_fields() -> None:
+    """Ответ API с live_metrics/live_sample_size парсится корректно."""
+    payload = {
+        "ticker": "SBER",
+        "model": "garch",
+        "model_version": "v1.0",
+        "metrics_vs_baseline": {"qlike": 0.512, "qlike_baseline": 0.731, "rmse": 0.042},
+        "points": [],
+        "live_metrics": {"qlike": 0.534, "qlike_baseline": 0.748, "rmse": 0.044},
+        "live_sample_size": 15,
+    }
+    history = VolatilityForecastHistoryOut.model_validate(payload)
+    assert history.live_metrics is not None
+    assert history.live_metrics.qlike == 0.534
+    assert history.live_sample_size == 15

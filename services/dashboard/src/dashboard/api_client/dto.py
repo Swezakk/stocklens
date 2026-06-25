@@ -301,6 +301,11 @@ class VolatilityForecastHistoryOut(BaseModel):
     ``protected_namespaces=()`` — поле ``model`` иначе конфликтует с защищённым
     неймспейсом Pydantic v2 (``model_*``). ``model``/``metrics_vs_baseline`` — ``None``,
     если модель в API не загружена (degraded readiness): реализованная серия всё равно есть.
+
+    ``live_metrics`` — live QLIKE модели и baseline по реальным созревшим прогнозам;
+    ``None`` когда недостаточно созревших пар (порог определяет API). ``live_sample_size`` —
+    число созревших пар (0 при отсутствии). Дефолты обеспечивают совместимость со старыми
+    ответами API, не содержащими этих полей.
     """
 
     model_config = {"protected_namespaces": ()}
@@ -310,6 +315,8 @@ class VolatilityForecastHistoryOut(BaseModel):
     model_version: str | None
     metrics_vs_baseline: VolatilityMetricsOut | None
     points: list[VolatilityForecastPointOut]
+    live_metrics: VolatilityMetricsOut | None = None
+    live_sample_size: int = 0
 
 
 # Конкретные подклассы Page[T] для кэширования: параметризованный дженерик Page[NewsOut]

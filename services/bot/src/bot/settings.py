@@ -81,14 +81,14 @@ class BotSettings(BaseSettings):
         description="Минута отправки дайджеста по московскому времени (0-59).",
     )
     forecast_refresh_hour_msk: int = Field(
-        default=0,
+        default=11,
         ge=0,
         le=23,
         validation_alias=AliasChoices("FORECAST_REFRESH_HOUR_MSK", "forecast_refresh_hour_msk"),
-        description="Час запуска ежедневной генерации прогнозов по МСК (после сбора свечей 23:55).",
+        description="Час запуска прогнозов по МСК (после утреннего синка свечей 10:00).",
     )
     forecast_refresh_minute_msk: int = Field(
-        default=30,
+        default=0,
         ge=0,
         le=59,
         validation_alias=AliasChoices("FORECAST_REFRESH_MINUTE_MSK", "forecast_refresh_minute_msk"),

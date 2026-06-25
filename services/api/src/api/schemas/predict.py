@@ -51,43 +51,6 @@ class VolatilityForecastPoint(BaseModel):
     realized: float | None = None
 
 
-class VolatilityForecastHistoryOut(BaseModel):
-    """История прогнозов волатильности с реализованными значениями для графика (ml-spec §10).
-
-    ``protected_namespaces=()`` — поле ``model`` конфликтует с защищённым неймспейсом Pydantic v2.
-
-    ``live_metrics`` — скользящий QLIKE по созревшим парам (forecast + realized оба присутствуют).
-    Сопоставим с офлайновым ``metrics_vs_baseline`` (walk-forward); None если пар < 10.
-    ``live_sample_size`` — количество пар после joint-маски (конечные положительные h/RV/b).
-    """
-
-    model_config = {"protected_namespaces": ()}
-
-    ticker: str
-    model: str | None
-    model_version: str | None
-    metrics_vs_baseline: VolatilityMetrics | None
-    points: list[VolatilityForecastPoint]
-    live_metrics: VolatilityMetrics | None = None
-    live_sample_size: int = 0
-
-
-class ForecastRefreshSummary(BaseModel):
-    """Итог пакетной генерации прогнозов (возвращается сервисным методом, не HTTP-ответом)."""
-
-    generated: int
-    skipped: int
-    failed: int
-    total: int
-
-
-class ForecastRefreshOut(BaseModel):
-    """Ответ эндпоинта POST /bot/forecasts/refresh."""
-
-    accepted: bool
-    reason: str | None = None
-
-
 class VolatilityRegime(BaseModel):
     """Режим волатильности: прогноз vs исторический квантиль (ml-spec §9).
 
@@ -104,3 +67,43 @@ class VolatilityRegime(BaseModel):
     is_elevated: bool
     quantile: float
     lookback: int
+
+
+class VolatilityForecastHistoryOut(BaseModel):
+    """История прогнозов волатильности с реализованными значениями для графика (ml-spec §10).
+
+    ``protected_namespaces=()`` — поле ``model`` конфликтует с защищённым неймспейсом Pydantic v2.
+
+    ``live_metrics`` — скользящий QLIKE по созревшим парам (forecast + realized оба присутствуют).
+    Сопоставим с офлайновым ``metrics_vs_baseline`` (walk-forward); None если пар < 10.
+    ``live_sample_size`` — количество пар после joint-маски (конечные положительные h/RV/b).
+    ``forward`` — режим волатильности по последнему сохранённому прогнозу (ml-spec §9);
+    None, если нет сохранённых прогнозов или недостаточно истории rv_target для квантиля.
+    """
+
+    model_config = {"protected_namespaces": ()}
+
+    ticker: str
+    model: str | None
+    model_version: str | None
+    metrics_vs_baseline: VolatilityMetrics | None
+    points: list[VolatilityForecastPoint]
+    live_metrics: VolatilityMetrics | None = None
+    live_sample_size: int = 0
+    forward: VolatilityRegime | None = None
+
+
+class ForecastRefreshSummary(BaseModel):
+    """Итог пакетной генерации прогнозов (возвращается сервисным методом, не HTTP-ответом)."""
+
+    generated: int
+    skipped: int
+    failed: int
+    total: int
+
+
+class ForecastRefreshOut(BaseModel):
+    """Ответ эндпоинта POST /bot/forecasts/refresh."""
+
+    accepted: bool
+    reason: str | None = None

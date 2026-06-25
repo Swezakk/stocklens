@@ -170,21 +170,18 @@ class PredictionService:
         """
         result = await self._forecast(ticker)
 
-        realized = np.sqrt(result.frame["rv_target"].dropna().to_numpy(dtype=float))
-        if len(realized) < MIN_REGIME_OBSERVATIONS:
-            raise InsufficientHistoryError(ticker, len(realized), MIN_REGIME_OBSERVATIONS)
-
-        trailing = realized[-lookback:]
-        threshold = float(np.quantile(trailing, quantile))
-        return VolatilityRegime(
+        regime = _regime_or_none(
             ticker=result.security.ticker,
             predicted_for=result.predicted_for,
             volatility=result.volatility,
-            threshold=threshold,
-            is_elevated=result.volatility > threshold,
+            frame=result.frame,
             quantile=quantile,
             lookback=lookback,
         )
+        if regime is None:
+            available = int(result.frame["rv_target"].dropna().shape[0])
+            raise InsufficientHistoryError(ticker, available, MIN_REGIME_OBSERVATIONS)
+        return regime
 
     async def forecast_history(self, ticker: str, lookback: int) -> VolatilityForecastHistoryOut:
         """История прогнозов волатильности vs реализованных значений (ml-spec §10).
@@ -221,6 +218,7 @@ class PredictionService:
                 points=[],
                 live_metrics=None,
                 live_sample_size=0,
+                forward=None,
             )
 
         all_dates: list[date] = [pd.Timestamp(d).date() for d in frame["trade_date"].tolist()]
@@ -243,6 +241,19 @@ class PredictionService:
         baseline_by_date = _build_baseline_map(frame, all_dates, horizon)
         live_metrics, live_sample_size = _compute_live_metrics(points, baseline_by_date)
 
+        forward: VolatilityRegime | None = None
+        for p in reversed(points):
+            if p.forecast is not None:
+                forward = _regime_or_none(
+                    ticker=security.ticker,
+                    predicted_for=p.date,
+                    volatility=p.forecast,
+                    frame=frame,
+                    quantile=self._settings.volatility_regime_quantile,
+                    lookback=self._settings.volatility_regime_lookback,
+                )
+                break
+
         return VolatilityForecastHistoryOut(
             ticker=security.ticker,
             model=model_name,
@@ -251,6 +262,7 @@ class PredictionService:
             points=points,
             live_metrics=live_metrics,
             live_sample_size=live_sample_size,
+            forward=forward,
         )
 
     async def _forecast(self, ticker: str) -> _Forecast:
@@ -309,6 +321,37 @@ class PredictionService:
             volatility=volatility,
             model=model,
         )
+
+
+def _regime_or_none(
+    ticker: str,
+    predicted_for: date,
+    volatility: float,
+    frame: pd.DataFrame,
+    quantile: float,
+    lookback: int,
+) -> VolatilityRegime | None:
+    """Вычислить режим волатильности из уже загруженного frame.
+
+    Возвращает None (не бросает), когда ненулевых rv_target меньше MIN_REGIME_OBSERVATIONS.
+    Используется и в assess_volatility_regime (который поверх добавляет raise), и в
+    forecast_history (который обрабатывает None gracefully).
+    """
+    realized = np.sqrt(frame["rv_target"].dropna().to_numpy(dtype=float))
+    if len(realized) < MIN_REGIME_OBSERVATIONS:
+        return None
+
+    trailing = realized[-lookback:]
+    threshold = float(np.quantile(trailing, quantile))
+    return VolatilityRegime(
+        ticker=ticker,
+        predicted_for=predicted_for,
+        volatility=volatility,
+        threshold=threshold,
+        is_elevated=volatility > threshold,
+        quantile=quantile,
+        lookback=lookback,
+    )
 
 
 def _extract_model_meta(

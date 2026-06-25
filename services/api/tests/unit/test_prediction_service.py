@@ -20,8 +20,12 @@ from api.core.exceptions import (
 from api.core.settings import ApiSettings
 from api.ml.bundle import LoadedVolatilityModel, ModelBundle
 from api.ml.features import build_serving_frame
-from api.schemas.predict import VolatilityForecastHistoryOut
-from api.services.prediction import MIN_REGIME_OBSERVATIONS, PredictionService, _Forecast
+from api.schemas.predict import VolatilityForecastHistoryOut, VolatilityRegime
+from api.services.prediction import (
+    MIN_REGIME_OBSERVATIONS,
+    PredictionService,
+    _Forecast,
+)
 from stocklens_core.enums import PredictionKind
 from stocklens_core.models.market import Security
 
@@ -381,3 +385,182 @@ async def test_forecast_history_empty_candles_returns_empty_points() -> None:
 
     assert result.points == []
     assert result.ticker == "SBER"
+
+
+async def test_forecast_history_forward_present() -> None:
+    """forward присутствует и корректен, когда есть сохранённый прогноз и достаточно истории.
+
+    Проверяет: volatility == последний прогноз (не первый), threshold == hand-computed quantile,
+    is_elevated вычислен корректно.
+    """
+    candles = _candles(200)
+    frame = build_serving_frame(
+        candles,
+        _empty_dividends(),
+        _empty_splits(),
+        train_start=_settings().ml_train_start,
+        horizon=5,
+    )
+    all_dates = [pd.Timestamp(d).date() for d in frame["trade_date"].tolist()]
+    window_dates = all_dates[-90:]
+
+    realized_arr = np.sqrt(frame["rv_target"].dropna().to_numpy(dtype=float))
+    trailing = realized_arr[-252:]
+    expected_threshold = float(np.quantile(trailing, 0.80))
+
+    early_date = window_dates[20]
+    last_date = window_dates[60]
+    last_forecast = expected_threshold * 1.5
+
+    repo = _FakePredictionRepo(
+        list_values_result={
+            early_date: 0.0001,
+            last_date: last_forecast,
+        }
+    )
+    service, _, _ = _service(security=_security(), candles=candles, prediction_repo=repo)
+
+    result = await service.forecast_history("SBER", lookback=90)
+
+    assert result.forward is not None
+    assert isinstance(result.forward, VolatilityRegime)
+    assert result.forward.volatility == pytest.approx(last_forecast)
+    assert result.forward.predicted_for == last_date
+    assert result.forward.ticker == "SBER"
+    assert result.forward.threshold == pytest.approx(expected_threshold)
+    assert result.forward.is_elevated is True
+    assert result.forward.quantile == pytest.approx(0.80)
+    assert result.forward.lookback == 252
+
+
+async def test_forecast_history_forward_none_when_no_forecast() -> None:
+    """forward=None, когда ни одна точка не имеет сохранённого прогноза."""
+    service, _, _ = _service(
+        security=_security(),
+        candles=_candles(200),
+        prediction_repo=_FakePredictionRepo(list_values_result={}),
+    )
+
+    result = await service.forecast_history("SBER", lookback=90)
+
+    assert result.forward is None
+    # Additivity: points и live_metrics остаются корректными.
+    assert len(result.points) > 0
+    assert all(p.forecast is None for p in result.points)
+
+
+async def test_forecast_history_forward_none_when_insufficient_history() -> None:
+    """forecast_history не бросает InsufficientHistoryError при rv_target < MIN_REGIME_OBSERVATIONS.
+
+    Прогноз присутствует (чтобы разграничить с test_forecast_history_forward_none_when_no_forecast),
+    но история rv_target слишком мала для квантиля → forward=None gracefully.
+    n=63 даёт 58 ненулевых rv_target < MIN_REGIME_OBSERVATIONS=60 (подтверждено assert-ом в теле).
+    """
+    candles = _candles(63)
+    frame = build_serving_frame(
+        candles,
+        _empty_dividends(),
+        _empty_splits(),
+        train_start=_settings().ml_train_start,
+        horizon=5,
+    )
+    rv_count = int(frame["rv_target"].dropna().shape[0])
+    assert rv_count < MIN_REGIME_OBSERVATIONS, (
+        f"Предусловие теста нарушено: rv_target={rv_count} >= {MIN_REGIME_OBSERVATIONS}"
+    )
+
+    all_dates = [pd.Timestamp(d).date() for d in frame["trade_date"].tolist()]
+    window_dates = all_dates[-90:]
+    seed_date = window_dates[min(20, len(window_dates) - 1)]
+
+    repo = _FakePredictionRepo(list_values_result={seed_date: 0.03})
+    service, _, _ = _service(security=_security(), candles=candles, prediction_repo=repo)
+
+    result = await service.forecast_history("SBER", lookback=90)
+
+    forecast_points = [p for p in result.points if p.forecast is not None]
+    assert len(forecast_points) >= 1, "Прогноз должен присутствовать в points"
+    assert result.forward is None
+
+
+async def test_assess_regime_still_raises_on_insufficient_history() -> None:
+    """assess_volatility_regime сохраняет прежнее поведение: бросает InsufficientHistoryError
+    при нехватке rv_target — DRY-хелпер не ослабил его контракт.
+    """
+
+    class _StubPredictionService(PredictionService):
+        async def _forecast(self, ticker: str) -> _Forecast:
+            n = 160
+            rng = np.random.default_rng(42)
+            rv = np.full(n, np.nan)
+            rv[-5:] = rng.uniform(0.001, 0.01, 5)
+            frame = pd.DataFrame(
+                {
+                    "trade_date": pd.bdate_range(start=date(2022, 6, 1), periods=n).date,
+                    "r": np.random.default_rng(1).normal(0, 0.01, n),
+                    "rv_target": rv,
+                }
+            )
+            loaded = _bundle(_StubPredictor()).volatility
+            assert loaded is not None
+            return _Forecast(
+                security=_security(),
+                frame=frame,
+                predicted_for=date(2024, 1, 2),
+                volatility=0.03,
+                model=loaded,
+            )
+
+    service = _StubPredictionService(
+        security_repo=_FakeSecurityRepo(_security()),
+        feature_repo=_FakeFeatureRepo(_candles(160)),
+        prediction_repo=_FakePredictionRepo(),
+        bundle=_bundle(_StubPredictor()),
+        settings=_settings(),
+    )
+
+    with pytest.raises(InsufficientHistoryError) as exc_info:
+        await service.assess_volatility_regime("SBER", quantile=0.80, lookback=252)
+
+    assert exc_info.value.available < MIN_REGIME_OBSERVATIONS
+
+
+async def test_forecast_history_additive_with_forward() -> None:
+    """points, metrics_vs_baseline, live_metrics, live_sample_size идентичны прежнему контракту.
+
+    Добавление forward не должно изменять ни один из существующих полей.
+    """
+    candles = _candles(200)
+    frame = build_serving_frame(
+        candles,
+        _empty_dividends(),
+        _empty_splits(),
+        train_start=_settings().ml_train_start,
+        horizon=5,
+    )
+    all_dates = [pd.Timestamp(d).date() for d in frame["trade_date"].tolist()]
+    window_dates = all_dates[-90:]
+    seed_date = window_dates[40]
+
+    repo = _FakePredictionRepo(list_values_result={seed_date: 0.05})
+    service, _, _ = _service(security=_security(), candles=candles, prediction_repo=repo)
+
+    result = await service.forecast_history("SBER", lookback=90)
+
+    # Существующие поля сохраняют прежний контракт.
+    assert result.ticker == "SBER"
+    assert result.model == "garch"
+    assert result.model_version == "3"
+    assert result.metrics_vs_baseline is not None
+    assert len(result.points) > 0
+
+    forecast_points = [p for p in result.points if p.forecast is not None]
+    assert len(forecast_points) == 1
+    assert forecast_points[0].date == seed_date
+    assert forecast_points[0].forecast == pytest.approx(0.05)
+
+    realized_points = [p for p in result.points if p.realized is not None]
+    assert len(realized_points) > 0
+
+    # forward — дополнительное поле, его наличие не ломает остальные.
+    assert hasattr(result, "forward")

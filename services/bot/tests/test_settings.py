@@ -28,9 +28,7 @@ def test_forecast_refresh_minute_default_is_0() -> None:
 
 def test_forecast_refresh_hour_overrideable_via_env_alias() -> None:
     """Env alias FORECAST_REFRESH_HOUR_MSK must override the default."""
-    settings = BotSettings.model_validate(
-        {**_MINIMAL_REQUIRED, "FORECAST_REFRESH_HOUR_MSK": "14"}
-    )
+    settings = BotSettings.model_validate({**_MINIMAL_REQUIRED, "FORECAST_REFRESH_HOUR_MSK": "14"})
     assert settings.forecast_refresh_hour_msk == 14
 
 

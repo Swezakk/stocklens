@@ -1,7 +1,9 @@
 """Планировщик задач ingestor на базе APScheduler 3.x (BlockingScheduler).
 
 Расписание:
-- 23:55 ежедневно — свечи и индекс (после закрытия торгов).
+- 10:00 ежедневно — утренний догон свечей и индекса (MOEX публикует дневную свечу
+  предыдущего торгового дня утром следующего дня; без этого синка 23:55 отстаёт на сутки).
+- 23:55 ежедневно — вечерний backstop свечей и индекса (на случай задержки публикации).
 - 08:00 ежедневно — ценные бумаги, дивиденды, сплиты (корпоративные данные утром).
 - 13:00 ежедневно — курсы валют и ключевая ставка ЦБ.
 - каждые 30 минут — сбор новостей из RSS.
@@ -52,6 +54,29 @@ def build_scheduler(
     )
 
     scheduler = BlockingScheduler(timezone="Europe/Moscow")
+
+    # MOEX publishes the prior day's daily candle the next morning; 23:55 alone trails by a day.
+    scheduler.add_job(
+        sync_candles,
+        "cron",
+        hour=10,
+        minute=0,
+        kwargs={"client": client, "session_factory": session_factory, "settings": settings},
+        misfire_grace_time=_MISFIRE_GRACE_SECONDS,
+        max_instances=1,
+        id="candles_morning",
+    )
+
+    scheduler.add_job(
+        sync_index,
+        "cron",
+        hour=10,
+        minute=0,
+        kwargs={"client": client, "session_factory": session_factory, "settings": settings},
+        misfire_grace_time=_MISFIRE_GRACE_SECONDS,
+        max_instances=1,
+        id="index_morning",
+    )
 
     scheduler.add_job(
         sync_candles,

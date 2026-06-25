@@ -17,7 +17,7 @@ walk-forward-валидация → регистрация лучшей моде
 | Модели | `models/garch.py`, `har.py`, `baselines.py` | GARCH(1,1) (эконометрика), HAR-RV (OLS), baseline RW-RV |
 | Оценка | `eval/metrics.py`, `walk_forward.py` | QLIKE/RMSE, `TimeSeriesSplit(gap=5)` walk-forward |
 | Реестр | `registry/pyfunc_volatility.py`, `promote.py` | serving-обёртка (Models-from-Code), алиасы champion/production |
-| Обучение | `training/train_volatility.py` | CLI: фичи → walk-forward → MLflow → регистрация champion |
+| Обучение | `training/train_volatility.py`, `train_trend.py` | CLI: фичи → walk-forward → MLflow → регистрация champion (волатильность / тренд) |
 
 ## Локальная разработка
 
@@ -87,6 +87,39 @@ promote_to_production(client, "stocklens-volatility", version="<номер ве�
 ```python
 promote_to_production(client, "stocklens-volatility", version="<предыдущая версия>")
 ```
+
+## Рунбук переобучения тренда (ml-spec §5.4, §6.2, §12)
+
+Симметричен волатильности, но прогнозирует **направление** цены через горизонт (P(up))
+CatBoost-классификатором. Та же дисциплина: walk-forward `TimeSeriesSplit(gap=HORIZON_DAYS)`,
+сравнение с naive baseline, регистрация только бьющей baseline версии.
+
+```bash
+uv sync --project ml --extra train
+
+DATABASE_URL='postgresql+psycopg://user:pass@host:5432/stocklens' \
+MLFLOW_TRACKING_URI='http://localhost:5000' \
+  uv run --project ml --extra train python -m stocklens_ml.training.train_trend \
+    --tickers SBER GAZP LKOH --n-splits 5 --mlflow-uri http://localhost:5000
+```
+
+Что делает скрипт:
+
+1. По каждому тикеру: фичи тренда → walk-forward (accuracy/F1/ROC-AUC для CatBoost и always-up
+   baseline), лог прогона в эксперимент `trend`. Forward-таргет считается на горизонт `HORIZON_DAYS`;
+   хвостовые строки без будущего close (NaN-таргет) отбрасываются перед обучением.
+2. Выбирает **агрегатного победителя** — метод с максимальным средним **ROC-AUC** по тикерам.
+3. **Baseline-гейт по ROC-AUC, а не accuracy (D6):** always-up baseline даёт accuracy базовой
+   ставки (53–57 %) при ROC-AUC = 0.5. Гейт берёт ROC-AUC (инвариант к балансу классов): модель
+   засчитывается, только если её средний ROC-AUC **строго** превышает 0.5. Иначе регистрации
+   нет (лог `no_model_beats_baseline`), не молча.
+4. Иначе: финальный фит CatBoost на полном окне (early-stop валидационный хвост с H-дневным purge
+   против утечки), лог **нативным** `mlflow.catboost`, регистрация версии `stocklens-trend` и
+   пометка алиасом `champion`.
+
+Артефакт тренда — нативный CatBoost (а не pyfunc-обёртка волатильности): модель самодостаточна,
+переносимого ручного состояния не несёт. Продвижение в `production` и откат — те же команды
+`promote_to_production`, что и для волатильности, с именем `stocklens-trend`.
 
 ## Методологические инварианты (ml-spec)
 

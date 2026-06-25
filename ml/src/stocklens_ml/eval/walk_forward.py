@@ -14,7 +14,8 @@ import pandas as pd
 from sklearn.model_selection import TimeSeriesSplit
 
 from stocklens_ml.config import HORIZON_DAYS
-from stocklens_ml.eval import metrics
+from stocklens_ml.eval import classification_metrics, metrics
+from stocklens_ml.features.assemble import TREND_TARGET_COLUMN
 from stocklens_ml.models import baselines, garch
 from stocklens_ml.models.har import HAR_REGRESSORS, HarRvModel
 
@@ -49,6 +50,43 @@ def evaluate(
         name: {
             "qlike": metrics.qlike(realized, np.concatenate(parts)),
             "rmse": metrics.rmse(realized, np.concatenate(parts)),
+        }
+        for name, parts in forecast_parts.items()
+    }
+
+
+def evaluate_trend(
+    frame: pd.DataFrame,
+    forecasters: dict[str, Forecaster],
+    n_splits: int = 5,
+    gap: int = HORIZON_DAYS,
+) -> dict[str, dict[str, float]]:
+    """Walk-forward оценка тренда: accuracy/F1/ROC-AUC на P(up) по каждому форкастеру (§6.2).
+
+    Логика split-и-конкатенации идентична :func:`evaluate` (тот же ``TimeSeriesSplit`` с
+    forward-purging через ``gap``); отличается лишь метрический словарь — классификационный.
+    Форкастеры возвращают вероятность роста P(up) для test-строк (тот же контракт сигнатуры).
+
+    ``roc_auc`` не определён на одноклассовой объединённой test-выборке — ``classification_metrics
+    .roc_auc`` бросит ``ValueError`` с русскоязычным сообщением; ловить его здесь намеренно не
+    будем (одноклассовый прогон — сигнал проблемы данных, не штатный путь).
+    """
+    splitter = TimeSeriesSplit(n_splits=n_splits, gap=gap)
+    realized_parts: list[npt.NDArray[np.float64]] = []
+    forecast_parts: dict[str, list[npt.NDArray[np.float64]]] = {name: [] for name in forecasters}
+
+    target = frame[TREND_TARGET_COLUMN].to_numpy(dtype=float)
+    for train_idx, test_idx in splitter.split(frame):
+        realized_parts.append(target[test_idx])
+        for name, forecaster in forecasters.items():
+            forecast_parts[name].append(forecaster(frame, train_idx, test_idx))
+
+    realized = np.concatenate(realized_parts)
+    return {
+        name: {
+            "accuracy": classification_metrics.accuracy(realized, np.concatenate(parts)),
+            "f1": classification_metrics.f1(realized, np.concatenate(parts)),
+            "roc_auc": classification_metrics.roc_auc(realized, np.concatenate(parts)),
         }
         for name, parts in forecast_parts.items()
     }

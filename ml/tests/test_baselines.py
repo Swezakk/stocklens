@@ -17,3 +17,13 @@ def test_rw_rv_is_trailing_realized_variance() -> None:
     assert forecast.iloc[2] == pytest.approx(0.1**2 + 0.2**2)
     assert forecast.iloc[3] == pytest.approx(0.2**2 + (-0.1) ** 2)
     assert forecast.iloc[4] == pytest.approx((-0.1) ** 2 + 0.05**2)
+
+
+def test_always_up_forecast_is_constant_one_aligned_to_index() -> None:
+    index = pd.Index([10, 20, 30], name="row")
+
+    forecast = baselines.always_up_forecast(index)
+
+    assert forecast.name == "always_up_forecast"
+    assert (forecast == 1.0).all()
+    assert forecast.index.equals(index)

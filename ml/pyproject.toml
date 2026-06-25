@@ -23,11 +23,13 @@ dependencies = [
 [project.optional-dependencies]
 # Зависимости только для ОБУЧЕНИЯ, не для serving-инференса. Вынесены в extra, чтобы образ
 # API (зависит от stocklens-ml БЕЗ [train]) их не тянул: serving использует только
-# features/data (чистый pandas) + arch (рефит pyfunc). catboost и shap (модель тренда,
-# поздняя фаза) добавляются СЮДА — shap тянет numba/llvmlite, конфликтующие с Python 3.12 +
-# numpy 2.x; вынос в extra не даёт им протечь в образ API.
+# features/data (чистый pandas) + arch (рефит pyfunc). catboost (модель тренда) добавлен
+# СЮДА — обучение и оффлайн-метрики (scikit-learn) не текут в образ API. shap НЕ добавляем:
+# вклады фич берём нативным catboost get_feature_importance(type="ShapValues"), а shap-пакет
+# тянет numba/llvmlite, конфликтующие с Python 3.12 + numpy 2.x.
 train = [
     "scikit-learn>=1.5",
+    "catboost>=1.2",
 ]
 
 [dependency-groups]

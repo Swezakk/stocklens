@@ -84,3 +84,40 @@ def test_garch_forecaster_produces_finite_positive_forecast() -> None:
     assert forecast.shape == (1,)
     assert np.isfinite(forecast[0])
     assert forecast[0] > 0.0
+
+
+def _trend_frame(n: int) -> pd.DataFrame:
+    """Синтетический фрейм тренда: бинарный таргет, чередующийся по индексу (оба класса в фолде)."""
+    idx = np.arange(n)
+    return pd.DataFrame({"trend_target": (idx % 2).astype(float)})
+
+
+def _trend_perfect(
+    frame: pd.DataFrame, train_idx: npt.NDArray[np.intp], test_idx: npt.NDArray[np.intp]
+) -> npt.NDArray[np.float64]:
+    """Идеальный форкастер: P(up) = истинный класс → ROC-AUC=1, accuracy=1."""
+    return np.asarray(frame["trend_target"].to_numpy(dtype=float)[test_idx], dtype=np.float64)
+
+
+def _trend_always_up(
+    frame: pd.DataFrame, train_idx: npt.NDArray[np.intp], test_idx: npt.NDArray[np.intp]
+) -> npt.NDArray[np.float64]:
+    """Always-up baseline: P(up)=1 везде → ROC-AUC=0.5 (нет ранжирования)."""
+    return np.ones(len(test_idx), dtype=np.float64)
+
+
+def test_evaluate_trend_perfect_forecaster_scores_one() -> None:
+    frame = _trend_frame(60)
+
+    result = walk_forward.evaluate_trend(frame, {"perfect": _trend_perfect}, n_splits=3, gap=5)
+
+    assert result["perfect"]["roc_auc"] == pytest.approx(1.0)
+    assert result["perfect"]["accuracy"] == pytest.approx(1.0)
+
+
+def test_evaluate_trend_always_up_baseline_has_chance_roc_auc() -> None:
+    frame = _trend_frame(60)
+
+    result = walk_forward.evaluate_trend(frame, {"always_up": _trend_always_up}, n_splits=3, gap=5)
+
+    assert result["always_up"]["roc_auc"] == pytest.approx(0.5)

@@ -162,6 +162,7 @@ class _FakeClient:
         return OptimizeResult.model_validate(
             {
                 "strategy": request["strategy"],
+                "requested_strategy": request["strategy"],
                 "weights": {"SBER": 1.0},
                 "expected_return": 0.12,
                 "volatility": 0.2,

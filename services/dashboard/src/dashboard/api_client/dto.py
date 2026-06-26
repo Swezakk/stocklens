@@ -244,9 +244,17 @@ class FrontierPoint(BaseModel):
 
 
 class OptimizeResult(BaseModel):
-    """Результат оптимизации: веса стратегии, эффективная граница и бенчмарки."""
+    """Результат оптимизации: веса стратегии, эффективная граница и бенчмарки.
+
+    ``strategy`` — фактически применённая стратегия (effective): при авто-фолбэке API
+    сам понижает max-Sharpe до min-volatility, и тогда ``strategy`` отличается от
+    ``requested_strategy`` (что запросил клиент). ``fallback_reason`` — готовая русская
+    фраза о фолбэке (``None`` ⇒ фолбэка не было); дашборд её только показывает, текст
+    формирует API (источник истины правил).
+    """
 
     strategy: OptimizationStrategy
+    requested_strategy: OptimizationStrategy
     weights: dict[str, float]
     expected_return: float
     volatility: float
@@ -254,6 +262,7 @@ class OptimizeResult(BaseModel):
     frontier: list[FrontierPoint]
     equal_weight_sharpe: float
     imoex_sharpe: float
+    fallback_reason: str | None = None
 
 
 class EquityPointOut(BaseModel):

@@ -9,6 +9,7 @@ from dashboard.api_client.dto import (
     MoversOut,
     NewsOut,
     OptimizationStrategy,
+    OptimizeResult,
     Page,
     PortfolioSummaryOut,
     SecurityOut,
@@ -67,6 +68,44 @@ def test_optimization_strategy_mirrors_api_values() -> None:
         "target_risk",
         "max_utility",
     }
+
+
+def _optimize_payload(**overrides: Any) -> dict[str, Any]:
+    """Образец JSON ответа /portfolio/optimize (зеркало OptimizeResult)."""
+    payload: dict[str, Any] = {
+        "strategy": "max_sharpe",
+        "requested_strategy": "max_sharpe",
+        "weights": {"SBER": 1.0},
+        "expected_return": 0.12,
+        "volatility": 0.2,
+        "sharpe": 0.6,
+        "frontier": [{"volatility": 0.2, "expected_return": 0.12}],
+        "equal_weight_sharpe": 0.5,
+        "imoex_sharpe": 0.4,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_optimize_result_round_trips_requested_strategy_and_fallback() -> None:
+    """Авто-фолбэк: эффективная стратегия min-vol при запрошенной max-Sharpe + причина."""
+    result = OptimizeResult.model_validate(
+        _optimize_payload(
+            strategy="min_volatility",
+            requested_strategy="max_sharpe",
+            fallback_reason="Максимизация Шарпа невозможна: применена минимизация риска.",
+        )
+    )
+    assert result.strategy is OptimizationStrategy.MIN_VOLATILITY
+    assert result.requested_strategy is OptimizationStrategy.MAX_SHARPE
+    assert result.fallback_reason == "Максимизация Шарпа невозможна: применена минимизация риска."
+
+
+def test_optimize_result_defaults_fallback_reason_to_none() -> None:
+    """Без авто-фолбэка: API не присылает fallback_reason — поле по умолчанию None."""
+    result = OptimizeResult.model_validate(_optimize_payload())
+    assert result.fallback_reason is None
+    assert result.requested_strategy is OptimizationStrategy.MAX_SHARPE
 
 
 def test_currency_enum_imported_from_core() -> None:

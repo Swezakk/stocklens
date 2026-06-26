@@ -28,7 +28,7 @@ import streamlit as st
 from pandas.io.formats.style import Styler
 
 from dashboard import theme
-from dashboard.api_client.client import ApiClient
+from dashboard.api_client.client import _FALLBACK_DETAIL, ApiClient
 from dashboard.api_client.dto import (
     BacktestResultOut,
     EquityPointOut,
@@ -96,6 +96,12 @@ _POSITION_COLUMNS = (
 _EMPTY_POSITIONS = "Портфель пуст: добавьте первую позицию через форму ниже."
 _EMPTY_EQUITY = "Недостаточно истории котировок для построения кривой капитала."
 _EMPTY_FRONTIER = "Недостаточно данных для построения эффективной границы (нужно ≥ 2 бумаги)."
+
+#: Граница вырождена при УСПЕШНОМ ответе (HTTP 200, пустой frontier): доходности бумаг
+#: неразличимы за период — фронтир не строится, но это не «< 2 бумаги» (их может быть много).
+_EMPTY_FRONTIER_DEGENERATE = (
+    "Граница не строится: ожидаемые доходности бумаг неразличимы за выбранный период."
+)
 _POSITION_CREATED = "Позиция по тикеру {ticker} сохранена."
 _POSITION_DELETED = "Позиция по тикеру {ticker} удалена."
 _DELETE_NEEDS_TICKER = "Не удалось удалить позицию: тикер не выбран."
@@ -251,9 +257,17 @@ def _is_empty_state_error(error: ApiError) -> bool:
 
 
 def _render_load_failure(error: ApiError, empty_message: str) -> None:
-    """Отрисовать ветку неуспеха загрузки: 422 → пустое состояние, иначе → ошибка сервиса."""
+    """Отрисовать ветку неуспеха загрузки: 422 → пустое состояние, иначе → ошибка сервиса.
+
+    На пустом состоянии (422) предпочитается реальная причина от API (русский текст с
+    сущностью и причиной — backend источник истины), а хардкод секции остаётся graceful
+    фолбэком, когда тело ответа без detail (клиент подставил дженерик ``_FALLBACK_DETAIL``).
+    """
     if _is_empty_state_error(error):
-        feedback.render_empty(empty_message)
+        if isinstance(error, ApiServerError) and error.detail != _FALLBACK_DETAIL:
+            feedback.render_empty(error.detail)
+        else:
+            feedback.render_empty(empty_message)
     else:
         feedback.render_error(error.user_message)
 
@@ -507,8 +521,14 @@ def _render_frontier_section(client: ApiClient) -> None:
     result = _load_optimize(client)
     if result is None:
         return
+
+    # Баннер фолбэка — независимо от пустоты фронтира: вырожденный авто-фолбэк может
+    # вернуть и пустую границу (доходности равны), но причину показать всё равно нужно.
+    if result.fallback_reason is not None:
+        feedback.render_info(result.fallback_reason)
+
     if not result.frontier:
-        feedback.render_empty(_EMPTY_FRONTIER)
+        feedback.render_empty(_EMPTY_FRONTIER_DEGENERATE)
         return
 
     chart = charts.build_efficient_frontier_chart(
@@ -523,8 +543,9 @@ def _load_optimize(client: ApiClient) -> OptimizeResult | None:
 
     Оптимизация кэшируется по нормализованным параметрам (period_days, стратегия max-Sharpe;
     tickers=None — текущие позиции); дорогой солвер Марковица не пересчитывается на каждый
-    rerun. 422 «нужно ≥ 2 бумаги» — валидная ошибка сервера; ``cache_data`` не кэширует
-    исключения, поэтому пустое состояние перерешается заново при следующем rerun.
+    rerun. 422 «данных недостаточно» — валидная ошибка сервера (её русскую причину покажет
+    _render_load_failure); ``cache_data`` не кэширует исключения, поэтому пустое состояние
+    перерешается заново при следующем rerun.
     """
     try:
         return fetch_optimize(client, period_days=_SUMMARY_PERIOD_DAYS)

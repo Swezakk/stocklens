@@ -11,9 +11,20 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pandas as pd
-from dashboard.api_client.dto import EquityPointOut, PositionOut
+import pytest
+import streamlit as st
+from dashboard.api_client.client import _FALLBACK_DETAIL, ApiClient
+from dashboard.api_client.dto import (
+    EquityPointOut,
+    FrontierPoint,
+    OptimizationStrategy,
+    OptimizeResult,
+    PositionOut,
+)
 from dashboard.api_client.errors import ApiServerError, ApiUnavailableError, AuthError
+from dashboard.components import charts, feedback
 from dashboard.components.transforms import DeltaDirection
+from dashboard.pages import portfolio
 from dashboard.pages.portfolio import (
     _COL_AVG_PRICE,
     _COL_CURRENT_PRICE,
@@ -21,6 +32,10 @@ from dashboard.pages.portfolio import (
     _COL_PNL,
     _COL_QUANTITY,
     _COL_TICKER,
+    _EMPTY_EQUITY,
+    _EMPTY_FRONTIER,
+    _EMPTY_FRONTIER_DEGENERATE,
+    _EMPTY_POSITIONS,
     _POSITION_COLUMNS,
     _equity_series,
     _format_money,
@@ -30,6 +45,8 @@ from dashboard.pages.portfolio import (
     _pnl_direction,
     _position_row,
     _positions_dataframe,
+    _render_frontier_section,
+    _render_load_failure,
     _style_positions,
     _ticker_options,
     _vs_imoex_delta,
@@ -216,3 +233,181 @@ def test_is_empty_state_error_false_for_other_server_status() -> None:
 def test_is_empty_state_error_false_for_unavailable_and_auth() -> None:
     assert _is_empty_state_error(ApiUnavailableError()) is False
     assert _is_empty_state_error(AuthError()) is False
+
+
+def _fake_client() -> ApiClient:
+    """Реальный ApiClient (конструктор лишь создаёт httpx.Client, сети нет).
+
+    Нужен для типизированного аргумента render-функций: ``_load_optimize`` в тестах
+    подменяется monkeypatch-ем, поэтому сетевые вызовы клиента не выполняются.
+    """
+    return ApiClient(
+        base_url="http://api:8000",
+        api_prefix="/api/v1",
+        timeout=1.0,
+        token_provider=lambda: "token",
+        on_unauthorized=lambda: None,
+    )
+
+
+def _optimize_result(
+    *,
+    fallback_reason: str | None = None,
+    strategy: OptimizationStrategy = OptimizationStrategy.MAX_SHARPE,
+    requested_strategy: OptimizationStrategy = OptimizationStrategy.MAX_SHARPE,
+    frontier: list[FrontierPoint] | None = None,
+) -> OptimizeResult:
+    """Собрать OptimizeResult со всеми обязательными полями (фронтир/фолбэк настраиваются)."""
+    return OptimizeResult(
+        strategy=strategy,
+        requested_strategy=requested_strategy,
+        weights={"SBER": 0.6, "GAZP": 0.4},
+        expected_return=0.12,
+        volatility=0.2,
+        sharpe=0.6,
+        frontier=[FrontierPoint(volatility=0.2, expected_return=0.12)]
+        if frontier is None
+        else frontier,
+        equal_weight_sharpe=0.5,
+        imoex_sharpe=0.4,
+        fallback_reason=fallback_reason,
+    )
+
+
+@pytest.fixture
+def _silence_subheader(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Заглушить st.subheader внутри секции фронтира (UI-побочка, не предмет теста)."""
+    monkeypatch.setattr(st, "subheader", lambda *args, **kwargs: None)
+
+
+def test_render_frontier_section_shows_fallback_banner_with_non_empty_frontier(
+    monkeypatch: pytest.MonkeyPatch,
+    _silence_subheader: None,
+) -> None:
+    """Авто-фолбэк max-Sharpe → min-vol: баннер причины + график строятся вместе."""
+    reason = "Максимизация Шарпа невозможна: применена минимизация риска."
+    result = _optimize_result(
+        fallback_reason=reason,
+        strategy=OptimizationStrategy.MIN_VOLATILITY,
+        frontier=[
+            FrontierPoint(volatility=0.18, expected_return=0.10),
+            FrontierPoint(volatility=0.22, expected_return=0.14),
+        ],
+    )
+    infos: list[str] = []
+    empties: list[str] = []
+    charts_built: list[object] = []
+    monkeypatch.setattr(portfolio, "_load_optimize", lambda _client: result)
+    monkeypatch.setattr(feedback, "render_info", infos.append)
+    monkeypatch.setattr(feedback, "render_empty", empties.append)
+    monkeypatch.setattr(charts, "build_efficient_frontier_chart", lambda **kwargs: kwargs)
+    monkeypatch.setattr(charts, "render_chart", charts_built.append)
+
+    _render_frontier_section(_fake_client())
+
+    assert infos == [reason]
+    assert empties == []
+    assert len(charts_built) == 1
+
+
+def test_render_frontier_section_shows_fallback_banner_with_empty_frontier(
+    monkeypatch: pytest.MonkeyPatch,
+    _silence_subheader: None,
+) -> None:
+    """Вырожденный фолбэк (доходности неразличимы): баннер причины + точное пустое сообщение.
+
+    Регресс c695d3fb: пустой фронтир-200 НЕ должен показывать «нужно ≥ 2 бумаги».
+    """
+    reason = "Граница вырождена: применена минимизация риска."
+    result = _optimize_result(
+        fallback_reason=reason,
+        strategy=OptimizationStrategy.MIN_VOLATILITY,
+        frontier=[],
+    )
+    infos: list[str] = []
+    empties: list[str] = []
+    monkeypatch.setattr(portfolio, "_load_optimize", lambda _client: result)
+    monkeypatch.setattr(feedback, "render_info", infos.append)
+    monkeypatch.setattr(feedback, "render_empty", empties.append)
+
+    _render_frontier_section(_fake_client())
+
+    assert infos == [reason]
+    assert empties == [_EMPTY_FRONTIER_DEGENERATE]
+    assert _EMPTY_FRONTIER_DEGENERATE != _EMPTY_FRONTIER
+    assert "≥ 2 бумаги" not in _EMPTY_FRONTIER_DEGENERATE
+
+
+def test_render_frontier_section_no_banner_without_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    _silence_subheader: None,
+) -> None:
+    """Без авто-фолбэка (fallback_reason=None) баннер render_info не показывается."""
+    result = _optimize_result(fallback_reason=None)
+    infos: list[str] = []
+    monkeypatch.setattr(portfolio, "_load_optimize", lambda _client: result)
+    monkeypatch.setattr(feedback, "render_info", infos.append)
+    monkeypatch.setattr(charts, "build_efficient_frontier_chart", lambda **kwargs: kwargs)
+    monkeypatch.setattr(charts, "render_chart", lambda *a, **k: None)
+
+    _render_frontier_section(_fake_client())
+
+    assert infos == []
+
+
+def test_render_load_failure_prefers_server_detail_on_empty_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """422 с реальным server-detail показывает причину API, а не хардкод секции."""
+    detail = "Недостаточно истории котировок для построения границы за выбранный период."
+    error = ApiServerError(status=422, detail=detail)
+    empties: list[str] = []
+    monkeypatch.setattr(feedback, "render_empty", empties.append)
+
+    _render_load_failure(error, _EMPTY_FRONTIER)
+
+    assert empties == [detail]
+
+
+def test_render_load_failure_falls_back_to_section_message_on_generic_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """422 с дженерик-фолбэком клиента (тело без detail) → хардкод секции."""
+    error = ApiServerError(status=422, detail=_FALLBACK_DETAIL)
+    empties: list[str] = []
+    monkeypatch.setattr(feedback, "render_empty", empties.append)
+
+    _render_load_failure(error, _EMPTY_FRONTIER)
+
+    assert empties == [_EMPTY_FRONTIER]
+
+
+def test_render_load_failure_unavailable_error_uses_error_branch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ApiUnavailableError (не 422) → ветка ошибки сервиса, не пустое состояние."""
+    empties: list[str] = []
+    errors: list[str] = []
+    monkeypatch.setattr(feedback, "render_empty", empties.append)
+    monkeypatch.setattr(feedback, "render_error", errors.append)
+
+    _render_load_failure(ApiUnavailableError(), _EMPTY_POSITIONS)
+
+    assert empties == []
+    assert len(errors) == 1
+
+
+def test_render_load_failure_service_error_branch_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Не-422 (5xx) по-прежнему идёт в render_error, не в пустое состояние."""
+    error = ApiServerError(status=500, detail="сбой")
+    empties: list[str] = []
+    errors: list[str] = []
+    monkeypatch.setattr(feedback, "render_empty", empties.append)
+    monkeypatch.setattr(feedback, "render_error", errors.append)
+
+    _render_load_failure(error, _EMPTY_EQUITY)
+
+    assert empties == []
+    assert errors == [error.user_message]

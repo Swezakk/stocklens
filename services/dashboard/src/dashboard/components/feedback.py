@@ -35,6 +35,15 @@ def render_empty(message: str = _DEFAULT_EMPTY_MESSAGE) -> None:
     st.info(message, icon=":material/inbox:")
 
 
+def render_info(message: str) -> None:
+    """Показать информационный баннер (нейтральная нотификация, не ошибка и не пустота).
+
+    `message` — готовая русская строка (например, причина авто-фолбэка стратегии из API).
+    Иконка отличает баннер от пустого состояния (inbox) и ошибки (error).
+    """
+    st.info(message, icon=":material/info:")
+
+
 @contextmanager
 def render_loading(message: str = _DEFAULT_LOADING_MESSAGE) -> Iterator[None]:
     """Контекст-менеджер индикатора загрузки вокруг блока сетевого вызова."""

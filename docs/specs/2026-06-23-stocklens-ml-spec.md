@@ -490,12 +490,16 @@ metrics_vs_baseline: { qlike: float, qlike_baseline: float, rmse: float }
 ticker: str
 predicted_for: date
 horizon_days: int = 5
-prob_up: float               # P(up) ∈ [0,1]
-direction: Literal["up","down"]
-shap: dict[str, float]       # {feature: вклад} для этого предсказания
+prob_up: float                  # P(up) ∈ [0,1]
+direction: TrendDirection       # StrEnum в stocklens-core: "up" | "down" (инвариант #4)
+shap: list[ShapContribution]    # упорядоченные вклады; ShapContribution = { feature: str, value: float }
 base_value: float
 model_version: str
 ```
+
+`shap` — упорядоченный `list[ShapContribution]`, а не `dict[str, float]`: список сохраняет
+порядок признаков (для bar-объяснения в дашборде) и моделирует каждый вклад явным DTO.
+`direction` — доменный `TrendDirection` (StrEnum), сериализуется в `"up"`/`"down"`.
 
 - CPU-bound инференс — через `fastapi.concurrency.run_in_threadpool` (§9.2 главной спеки:
   API async, CPU-bound в threadpool).

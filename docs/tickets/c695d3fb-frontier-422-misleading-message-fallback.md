@@ -1,10 +1,11 @@
 ---
 id: c695d3fb
 title: Эффективная граница — вводящее в заблуждение сообщение «нужно ≥ 2 бумаги» при нерешаемом max_sharpe
-status: open
+status: resolved
 priority: medium
 component: dashboard
 discovered: 2026-06-26
+resolved: 2026-06-27
 discovered-from: []
 tags: ["portfolio", "optimization", "ux", "diagnostics", "demo-data"]
 ---
@@ -116,3 +117,24 @@ tags: ["portfolio", "optimization", "ux", "diagnostics", "demo-data"]
 - `services/api/src/api/analytics/optimization.py:19-107` — `build_max_sharpe_weights` / `build_min_volatility_weights` / `compute_frontier_points`.
 - pypfopt `EfficientFrontier.max_sharpe`: guard `max(expected_returns) <= risk_free_rate` → `ValueError`.
 - Коммит 61830ee — витрина README + скриншоты (демо-данные).
+
+## Resolution (2026-06-27)
+
+Задачи 1 и 2 выполнены; задача 3 осознанно отложена в новую фичу.
+
+- **Задача 1 — различить причины 422.** Дашборд `_render_load_failure` на пустом 422
+  показывает реальный серверный `detail` (RFC 9457, русский текст с причиной — backend
+  источник истины), хардкод секции остаётся graceful-фолбэком при дженерик-`detail`.
+  Касается всех трёх секций (позиции/equity/граница). Коммит `b615f7f`.
+- **Задача 2 — фолбэк на min-volatility.** Когда max-Sharpe нерешаем, API авто-фолбэчит
+  на min-volatility и возвращает рабочий портфель (HTTP 200) с полями
+  `requested_strategy` + `fallback_reason` вместо 422. Два пути фолбэка: предикат
+  `max(mu) ≤ rf` (точное зеркало pypfopt-гарда, единый `_expected_returns`) и
+  `try/except OptimizationError` для численной нестабильности солвера у границы (без
+  магических margin). Дашборд рисует честный баннер `render_info` над графиком,
+  независимо от пустоты фронтира. Коммиты `5b7f2ae` (API) + `38bb4b0` (e2e-тест) +
+  `b615f7f` (dashboard).
+- **Задача 3 — подбор демо-портфеля под витрину — отложена.** По решению владельца
+  свёрнута в новую фичу капитал-аллокации (ввод суммы/срока/стратегии → Марковиц
+  подбирает тикеры), которая сама даст оптимизируемый портфель для скриншотов. Не
+  потеряна — переходит в скоуп фичи.

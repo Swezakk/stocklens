@@ -41,6 +41,14 @@ _INSUFFICIENT_HISTORY_MSG = (
     "Недостаточно истории котировок для расчёта риск-метрик: "
     "нужно не менее 2 совмещённых торговых дней"
 )
+_MAX_SHARPE_FALLBACK_REASON = (
+    "max-Sharpe недоступен: ни одна бумага портфеля не обгоняет ключевую ставку ЦБ "
+    "за период — показан портфель минимума волатильности (min-vol)."
+)
+_MAX_SHARPE_SOLVER_FALLBACK_REASON = (
+    "max-Sharpe не построен для текущего портфеля и ставки ЦБ "
+    "— показан портфель минимума волатильности (min-vol)."
+)
 _MIN_ALIGNED_DAYS = 2
 _MIN_TICKERS_FOR_OPTIMIZE = 2
 _MIN_VALID_IMOEX_PRICES = 3
@@ -472,7 +480,7 @@ def _run_optimization(
 
     Raises:
         ValueError: недостаточно тикеров/дат или отсутствует обязательный параметр стратегии.
-        pypfopt.OptimizationError: целевое значение нефeasible — caller маппирует в 422.
+        pypfopt.OptimizationError: целевое значение недостижимо — caller маппирует в 422.
     """
     if len(prices_data) < _MIN_TICKERS_FOR_OPTIMIZE:
         raise ValueError("Для оптимизации портфеля нужно не менее 2 тикеров")
@@ -498,14 +506,34 @@ def _run_optimization(
 
     prices_df = pd.DataFrame(data_dict, index=pd.DatetimeIndex(common_dates))
 
-    weights = opt.build_weights_for_strategy(
-        prices_df,
-        strategy=strategy,
-        annual_rate=annual_rate,
-        target_return=target_return,
-        target_volatility=target_volatility,
-        risk_aversion=risk_aversion,
-    )
+    effective_strategy = strategy
+    fallback_reason: str | None = None
+    if strategy == OptimizationStrategy.MAX_SHARPE and not opt.max_sharpe_is_feasible(
+        prices_df, annual_rate
+    ):
+        effective_strategy = OptimizationStrategy.MIN_VOLATILITY
+        fallback_reason = _MAX_SHARPE_FALLBACK_REASON
+
+    try:
+        weights = opt.build_weights_for_strategy(
+            prices_df,
+            strategy=effective_strategy,
+            annual_rate=annual_rate,
+            target_return=target_return,
+            target_volatility=target_volatility,
+            risk_aversion=risk_aversion,
+        )
+    except OptimizationError:
+        if effective_strategy != OptimizationStrategy.MAX_SHARPE:
+            raise
+        effective_strategy = OptimizationStrategy.MIN_VOLATILITY
+        fallback_reason = _MAX_SHARPE_SOLVER_FALLBACK_REASON
+        weights = opt.build_weights_for_strategy(
+            prices_df,
+            strategy=OptimizationStrategy.MIN_VOLATILITY,
+            annual_rate=annual_rate,
+        )
+
     ret, vol, sharpe_val = opt.compute_portfolio_performance(prices_df, weights, annual_rate)
 
     frontier_raw = opt.compute_frontier_points(prices_df)
@@ -517,7 +545,8 @@ def _run_optimization(
     imoex_sharpe_val = _compute_imoex_sharpe(imoex_series, annual_rate)
 
     return OptimizeResult(
-        strategy=strategy,
+        strategy=effective_strategy,
+        requested_strategy=strategy,
         weights=weights,
         expected_return=ret,
         volatility=vol,
@@ -525,6 +554,7 @@ def _run_optimization(
         frontier=frontier,
         equal_weight_sharpe=equal_sharpe,
         imoex_sharpe=imoex_sharpe_val,
+        fallback_reason=fallback_reason,
     )
 
 

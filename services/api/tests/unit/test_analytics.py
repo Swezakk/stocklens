@@ -5,22 +5,31 @@ TDD-цикл: Red (этот файл написан до вызова функц
 """
 
 import math
+from datetime import date
 from decimal import Decimal
 
 import numpy as np
 import pandas as pd
 import pytest
+from api.analytics import optimization as optimization_module
 from api.analytics.constants import TRADING_DAYS_PER_YEAR
 from api.analytics.optimization import (
+    _expected_returns,
     build_max_sharpe_weights,
     build_min_volatility_weights,
     build_weights_for_strategy,
     compute_frontier_points,
+    max_sharpe_is_feasible,
 )
 from api.analytics.returns import log_returns, simple_returns, total_returns
 from api.analytics.risk import daily_risk_free, equity_curve, max_drawdown, sharpe_ratio
 from api.schemas.portfolio import OptimizationStrategy
+from api.services.portfolio import (
+    _MAX_SHARPE_SOLVER_FALLBACK_REASON,
+    _run_optimization,
+)
 from pypfopt import expected_returns as pf_expected_returns
+from pypfopt.exceptions import OptimizationError
 
 
 def test_log_returns_known_values() -> None:
@@ -369,3 +378,233 @@ def test_frontier_points_returns_list() -> None:
     for vol, ret in points:
         assert isinstance(vol, float)
         assert isinstance(ret, float)
+
+
+def _make_loss_prices_df() -> pd.DataFrame:
+    """Два актива с монотонно падающими ценами (mu << 0).
+
+    При любой разумной безрисковой ставке max(mu) <= rf → fallback на min-vol.
+    """
+    n = 100
+    dates = pd.date_range("2024-01-01", periods=n, freq="B")
+    # Цены падают с 100 до ~36 (exp(-1)) — доходность однозначно ниже любой ставки
+    prices_a = 100.0 * np.exp(-np.linspace(0, 1, n))
+    prices_b = 200.0 * np.exp(-np.linspace(0, 1.2, n))
+    return pd.DataFrame({"LOSE_A": prices_a, "LOSE_B": prices_b}, index=dates)
+
+
+def test_max_sharpe_is_feasible_false_when_all_mu_below_rf() -> None:
+    """Все mu < rf (убыточные активы) → max_sharpe_is_feasible возвращает False."""
+    prices_df = _make_loss_prices_df()
+    # Безрисковая ставка 0.0 — даже при ней убыточные активы дадут mu < 0
+    assert max_sharpe_is_feasible(prices_df, annual_rate_fraction=0.0) is False
+
+
+def test_max_sharpe_is_feasible_false_when_max_mu_equals_rf() -> None:
+    """max(mu) == rf (точное равенство) → False (pypfopt поднимает ValueError при <=)."""
+    prices_df = _make_uncorrelated_prices_df()
+    mu = _expected_returns(prices_df)
+    rf_at_boundary = float(mu.max())  # max(mu) == rf → False
+    assert max_sharpe_is_feasible(prices_df, annual_rate_fraction=rf_at_boundary) is False
+
+
+def test_max_sharpe_is_feasible_true_when_one_asset_exceeds_rf() -> None:
+    """Хотя бы один актив с mu > rf → max_sharpe_is_feasible возвращает True."""
+    prices_df = _make_uncorrelated_prices_df()
+    # Ставка чуть ниже max(mu): хотя бы один актив преодолеёт барьер
+    mu = _expected_returns(prices_df)
+    rf_just_below = float(mu.max()) - 1e-6
+    assert max_sharpe_is_feasible(prices_df, annual_rate_fraction=rf_just_below) is True
+
+
+def test_max_sharpe_is_feasible_predicate_true_when_asset_exceeds_rf() -> None:
+    """Предикат is_feasible=True означает: max(mu) > rf (строгое неравенство).
+
+    Отдельно от поведения солвера — проверяет только значение предиката.
+    """
+    prices_df = _make_uncorrelated_prices_df()
+    mu = _expected_returns(prices_df)
+    rf_below = float(mu.max()) - 1e-6
+    assert max_sharpe_is_feasible(prices_df, annual_rate_fraction=rf_below) is True
+
+
+def _make_prices_data_loss() -> dict[str, list[tuple[date, Decimal]]]:
+    """Убыточные ценовые ряды для двух тикеров (синтетика, без реального рынка)."""
+    n = 60
+    base = date(2024, 1, 2)
+    dates_list = pd.bdate_range(start=base, periods=n).date.tolist()
+    prices_a = (100.0 * np.exp(-np.linspace(0, 0.8, n))).tolist()
+    prices_b = (200.0 * np.exp(-np.linspace(0, 1.0, n))).tolist()
+    series_a = [(d, Decimal(str(round(p, 4)))) for d, p in zip(dates_list, prices_a, strict=True)]
+    series_b = [(d, Decimal(str(round(p, 4)))) for d, p in zip(dates_list, prices_b, strict=True)]
+    return {"LOSE_A": series_a, "LOSE_B": series_b}
+
+
+def _make_prices_data_growing() -> dict[str, list[tuple[date, Decimal]]]:
+    """Растущие ценовые ряды — max(mu) гарантированно выше любой умеренной ставки."""
+    n = 60
+    base = date(2024, 1, 2)
+    dates_list = pd.bdate_range(start=base, periods=n).date.tolist()
+    prices_a = (100.0 * np.exp(np.linspace(0, 0.5, n))).tolist()
+    prices_b = (200.0 * np.exp(np.linspace(0, 0.4, n))).tolist()
+    series_a = [(d, Decimal(str(round(p, 4)))) for d, p in zip(dates_list, prices_a, strict=True)]
+    series_b = [(d, Decimal(str(round(p, 4)))) for d, p in zip(dates_list, prices_b, strict=True)]
+    return {"GROW_A": series_a, "GROW_B": series_b}
+
+
+def test_run_optimization_max_sharpe_infeasible_falls_back_to_min_vol() -> None:
+    """MAX_SHARPE на убыточных ценах → fallback: strategy=MIN_VOLATILITY, нет исключения."""
+    prices_data = _make_prices_data_loss()
+    result = _run_optimization(
+        prices_data=prices_data,
+        imoex_series=[],
+        annual_rate=0.16,
+        strategy=OptimizationStrategy.MAX_SHARPE,
+    )
+    assert result.requested_strategy == OptimizationStrategy.MAX_SHARPE
+    assert result.strategy == OptimizationStrategy.MIN_VOLATILITY
+    assert result.fallback_reason is not None
+    assert len(result.fallback_reason) > 0
+
+
+def test_run_optimization_max_sharpe_feasible_no_fallback() -> None:
+    """MAX_SHARPE на растущих ценах → нет fallback: strategy=MAX_SHARPE, fallback_reason=None."""
+    prices_data = _make_prices_data_growing()
+    result = _run_optimization(
+        prices_data=prices_data,
+        imoex_series=[],
+        annual_rate=0.16,
+        strategy=OptimizationStrategy.MAX_SHARPE,
+    )
+    assert result.requested_strategy == OptimizationStrategy.MAX_SHARPE
+    assert result.strategy == OptimizationStrategy.MAX_SHARPE
+    assert result.fallback_reason is None
+
+
+def test_run_optimization_min_vol_no_fallback_field() -> None:
+    """MIN_VOLATILITY: strategy и requested_strategy совпадают, fallback_reason=None."""
+    prices_data = _make_prices_data_loss()
+    result = _run_optimization(
+        prices_data=prices_data,
+        imoex_series=[],
+        annual_rate=0.16,
+        strategy=OptimizationStrategy.MIN_VOLATILITY,
+    )
+    assert result.strategy == OptimizationStrategy.MIN_VOLATILITY
+    assert result.requested_strategy == OptimizationStrategy.MIN_VOLATILITY
+    assert result.fallback_reason is None
+
+
+def test_run_optimization_insufficient_tickers_raises_value_error() -> None:
+    """Менее 2 тикеров → ValueError (маппируется в InsufficientDataError сервисом)."""
+    single_ticker_data: dict[str, list[tuple[date, Decimal]]] = {
+        "ONLY_ONE": [(date(2024, 1, 2), Decimal("100")), (date(2024, 1, 3), Decimal("101"))]
+    }
+    with pytest.raises(ValueError, match="не менее 2 тикеров"):
+        _run_optimization(
+            prices_data=single_ticker_data,
+            imoex_series=[],
+            annual_rate=0.16,
+            strategy=OptimizationStrategy.MAX_SHARPE,
+        )
+
+
+def test_run_optimization_target_return_infeasible_raises_optimization_error() -> None:
+    """TARGET_RETURN с нереалистичной целью → ошибка (нет fallback для этой стратегии)."""
+    prices_data = _make_prices_data_loss()
+    with pytest.raises((OptimizationError, ValueError)):
+        _run_optimization(
+            prices_data=prices_data,
+            imoex_series=[],
+            annual_rate=0.16,
+            strategy=OptimizationStrategy.TARGET_RETURN,
+            target_return=100.0,  # невозможная цель
+        )
+
+
+def test_run_optimization_max_sharpe_solver_failure_falls_back_to_min_vol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Предикат говорит «feasible», но солвер бросает OptimizationError → solver-fallback.
+
+    MAX_SHARPE-путь перехватывает OptimizationError и переключается на MIN_VOLATILITY
+    с _MAX_SHARPE_SOLVER_FALLBACK_REASON. Пользователь не получает 422.
+    """
+    prices_data = _make_prices_data_growing()
+
+    real_build = optimization_module.build_weights_for_strategy
+
+    def fake_build(
+        prices_df: pd.DataFrame,
+        strategy: OptimizationStrategy,
+        annual_rate: float = 0.0,
+        target_return: float | None = None,
+        target_volatility: float | None = None,
+        risk_aversion: float | None = None,
+    ) -> dict[str, float]:
+        if strategy == OptimizationStrategy.MAX_SHARPE:
+            raise OptimizationError("ECOS solver forced failure")
+        return real_build(
+            prices_df,
+            strategy=strategy,
+            annual_rate=annual_rate,
+            target_return=target_return,
+            target_volatility=target_volatility,
+            risk_aversion=risk_aversion,
+        )
+
+    monkeypatch.setattr(optimization_module, "build_weights_for_strategy", fake_build)
+
+    result = _run_optimization(
+        prices_data=prices_data,
+        imoex_series=[],
+        annual_rate=0.16,
+        strategy=OptimizationStrategy.MAX_SHARPE,
+    )
+
+    assert result.requested_strategy == OptimizationStrategy.MAX_SHARPE
+    assert result.strategy == OptimizationStrategy.MIN_VOLATILITY
+    assert result.fallback_reason == _MAX_SHARPE_SOLVER_FALLBACK_REASON
+    assert math.isclose(sum(result.weights.values()), 1.0, abs_tol=1e-4)
+
+
+def test_run_optimization_non_max_sharpe_solver_error_propagates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OptimizationError в не-MAX_SHARPE пути (TARGET_RETURN) не перехватывается → propagates.
+
+    Гарантирует, что механизм solver-fallback ограничен только MAX_SHARPE-путём.
+    """
+    prices_data = _make_prices_data_growing()
+
+    real_build = optimization_module.build_weights_for_strategy
+
+    def fake_build(
+        prices_df: pd.DataFrame,
+        strategy: OptimizationStrategy,
+        annual_rate: float = 0.0,
+        target_return: float | None = None,
+        target_volatility: float | None = None,
+        risk_aversion: float | None = None,
+    ) -> dict[str, float]:
+        if strategy == OptimizationStrategy.TARGET_RETURN:
+            raise OptimizationError("infeasible target forced")
+        return real_build(
+            prices_df,
+            strategy=strategy,
+            annual_rate=annual_rate,
+            target_return=target_return,
+            target_volatility=target_volatility,
+            risk_aversion=risk_aversion,
+        )
+
+    monkeypatch.setattr(optimization_module, "build_weights_for_strategy", fake_build)
+
+    with pytest.raises(OptimizationError):
+        _run_optimization(
+            prices_data=prices_data,
+            imoex_series=[],
+            annual_rate=0.16,
+            strategy=OptimizationStrategy.TARGET_RETURN,
+            target_return=0.20,
+        )

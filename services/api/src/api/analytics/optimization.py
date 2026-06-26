@@ -16,6 +16,39 @@ _MIN_TICKERS_FOR_OPTIMIZATION = 2
 _MIN_PRICES_FOR_OPTIMIZATION = 2
 
 
+def _expected_returns(prices_df: pd.DataFrame) -> "pd.Series[float]":
+    """Вычислить ожидаемые годовые доходности методом mean_historical_return.
+
+    Единственный источник mu для всех функций модуля — гарантирует, что
+    проверка feasibility и солвер используют идентичный вектор ожидаемых доходностей.
+
+    Args:
+        prices_df: DataFrame (index=dates, columns=tickers, values=close).
+
+    Returns:
+        pd.Series с ожидаемыми годовыми доходностями для каждого тикера.
+    """
+    return expected_returns.mean_historical_return(prices_df, frequency=TRADING_DAYS_PER_YEAR)
+
+
+def max_sharpe_is_feasible(prices_df: pd.DataFrame, annual_rate_fraction: float) -> bool:
+    """Проверить, достижима ли max-Sharpe оптимизация для данных цен и ставки.
+
+    Зеркалит условие ValueError в pypfopt EfficientFrontier.max_sharpe:
+    исключение поднимается при max(mu) <= risk_free_rate, поэтому feasibility —
+    строгое неравенство max(mu) > rf. Равенство → False (недостижимо).
+
+    Args:
+        prices_df: DataFrame (index=dates, columns=tickers, values=close).
+        annual_rate_fraction: годовая безрисковая ставка как десятичная дробь.
+
+    Returns:
+        True если хотя бы один актив обгоняет безрисковую ставку, иначе False.
+    """
+    mu = _expected_returns(prices_df)
+    return float(mu.max()) > annual_rate_fraction
+
+
 def build_max_sharpe_weights(
     prices_df: pd.DataFrame,
     annual_rate_fraction: float,
@@ -35,7 +68,7 @@ def build_max_sharpe_weights(
         OptimizationError: если оптимизатор не может найти решение.
     """
     _validate_prices_df(prices_df)
-    mu = expected_returns.mean_historical_return(prices_df, frequency=TRADING_DAYS_PER_YEAR)
+    mu = _expected_returns(prices_df)
     cov = risk_models.CovarianceShrinkage(prices_df, frequency=TRADING_DAYS_PER_YEAR).ledoit_wolf()
     ef = EfficientFrontier(mu, cov)
     ef.max_sharpe(risk_free_rate=annual_rate_fraction)
@@ -60,7 +93,7 @@ def build_min_volatility_weights(
         OptimizationError: если оптимизатор не может найти решение.
     """
     _validate_prices_df(prices_df)
-    mu = expected_returns.mean_historical_return(prices_df, frequency=TRADING_DAYS_PER_YEAR)
+    mu = _expected_returns(prices_df)
     cov = risk_models.CovarianceShrinkage(prices_df, frequency=TRADING_DAYS_PER_YEAR).ledoit_wolf()
     ef = EfficientFrontier(mu, cov)
     ef.min_volatility()
@@ -83,7 +116,7 @@ def compute_frontier_points(
         Точки с ошибкой оптимизации пропускаются.
     """
     _validate_prices_df(prices_df)
-    mu = expected_returns.mean_historical_return(prices_df, frequency=TRADING_DAYS_PER_YEAR)
+    mu = _expected_returns(prices_df)
     cov = risk_models.CovarianceShrinkage(prices_df, frequency=TRADING_DAYS_PER_YEAR).ledoit_wolf()
 
     mu_min = float(mu.min())
@@ -123,7 +156,7 @@ def compute_portfolio_performance(
         Кортеж (expected_return, volatility, sharpe).
     """
     _validate_prices_df(prices_df)
-    mu = expected_returns.mean_historical_return(prices_df, frequency=TRADING_DAYS_PER_YEAR)
+    mu = _expected_returns(prices_df)
     cov = risk_models.CovarianceShrinkage(prices_df, frequency=TRADING_DAYS_PER_YEAR).ledoit_wolf()
     ef = EfficientFrontier(mu, cov, weight_bounds=(-1, 1))
     ef.set_weights(weights)
@@ -160,7 +193,7 @@ def build_weights_for_strategy(
         OptimizationError: Задача нефeasible (напр. target_return выше максимума).
     """
     _validate_prices_df(prices_df)
-    mu = expected_returns.mean_historical_return(prices_df, frequency=TRADING_DAYS_PER_YEAR)
+    mu = _expected_returns(prices_df)
     cov = risk_models.CovarianceShrinkage(prices_df, frequency=TRADING_DAYS_PER_YEAR).ledoit_wolf()
     ef = EfficientFrontier(mu, cov)
 

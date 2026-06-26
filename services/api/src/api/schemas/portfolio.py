@@ -104,9 +104,16 @@ class FrontierPoint(BaseModel):
 
 
 class OptimizeResult(BaseModel):
-    """Результат оптимизации: веса выбранной стратегии + эффективная граница и бенчмарки."""
+    """Результат оптимизации: веса выбранной стратегии + эффективная граница и бенчмарки.
+
+    Поля strategy/requested_strategy разделены для поддержки auto-fallback:
+    - requested_strategy: стратегия, запрошенная клиентом.
+    - strategy: фактически применённая стратегия (может отличаться при fallback).
+    - fallback_reason: причина переключения стратегии на русском; None при отсутствии fallback.
+    """
 
     strategy: OptimizationStrategy
+    requested_strategy: OptimizationStrategy
     weights: dict[str, float]
     expected_return: float
     volatility: float
@@ -114,6 +121,7 @@ class OptimizeResult(BaseModel):
     frontier: list[FrontierPoint]
     equal_weight_sharpe: float
     imoex_sharpe: float
+    fallback_reason: str | None = None
 
 
 _PRICE_LEVEL_ALERT_KINDS = {AlertKind.PRICE_LEVEL}

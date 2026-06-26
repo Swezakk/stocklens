@@ -178,7 +178,11 @@ async def test_portfolio_summary_period_too_short_does_not_crash(
 async def test_portfolio_optimize_default_strategy_returns_new_shape(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    """POST /portfolio/optimize (strategy=max_sharpe по умолчанию): новая форма ответа."""
+    """POST /portfolio/optimize (strategy=max_sharpe по умолчанию): форма ответа с новыми полями.
+
+    Seed-данные: цены растут линейно от 100/200, max(mu) ≈ 0.44 > 0.16 (key_rate) —
+    max_sharpe достижим, fallback не срабатывает.
+    """
     sec1 = await seed_security(db_session, ticker="OPT_A")
     sec2 = await seed_security(db_session, ticker="OPT_B")
     await seed_candles_range(db_session, sec1.id, _OPTIMIZE_DATES, Decimal("100.00"))
@@ -194,7 +198,9 @@ async def test_portfolio_optimize_default_strategy_returns_new_shape(
     assert resp.status_code == 200, resp.text
     data = resp.json()
 
+    assert data["requested_strategy"] == "max_sharpe"
     assert data["strategy"] == "max_sharpe"
+    assert data["fallback_reason"] is None
     weights_sum = sum(data["weights"].values())
     assert abs(weights_sum - 1.0) < 0.01, f"Сумма весов = {weights_sum}"
     assert isinstance(data["expected_return"], float)
@@ -225,6 +231,8 @@ async def test_portfolio_optimize_min_volatility_strategy(
     data = resp.json()
 
     assert data["strategy"] == "min_volatility"
+    assert data["requested_strategy"] == "min_volatility"
+    assert data["fallback_reason"] is None
     weights_sum = sum(data["weights"].values())
     assert abs(weights_sum - 1.0) < 0.01, f"Сумма весов min_vol = {weights_sum}"
 

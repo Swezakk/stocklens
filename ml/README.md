@@ -156,6 +156,30 @@ MLFLOW_TRACKING_URI='http://localhost:5000' \
 его автоматически; либо передать программно в `train_trend.register_champion(..., hyperparams=...)`.
 `tune_trend` сам в реестр не пишет — он лишь даёт данные для решения.
 
+### Сравнение классов моделей (sanity check)
+
+Тренд-CatBoost на стартовых гиперпараметрах дал средний walk-forward ROC-AUC ≈ 0.49 — модель не
+обошла always-up baseline (0.5). Чтобы доказать, что слаб **сигнал**, а не конкретная модель,
+скрипт `compare_trend_models` прогоняет ДРУГИЕ классы моделей на ТЕХ ЖЕ фичах и том же
+walk-forward.
+
+```bash
+DATABASE_URL='postgresql+psycopg://user:pass@host:5432/stocklens' \
+MLFLOW_TRACKING_URI='http://localhost:5000' \
+  uv run --project ml --extra train python -m stocklens_ml.training.compare_trend_models \
+    --tickers SBER GAZP LKOH --n-splits 5 --mlflow-uri http://localhost:5000
+```
+
+Три семьи с **фиксированными** конфигами (НИКАКОГО тюнинга альтернатив): `catboost` (REFERENCE,
+стартовые гиперпараметры — internal-consistency проверка ≈0.49), `logreg` (`C=1.0`, L2 через
+`l1_ratio=0.0`, `max_iter=1000`; per-fold `StandardScaler` фитится на train-строках — антиутечка),
+`random_forest` (`n_estimators=200`, `max_depth=4`, `class_weight="balanced"`). Фрейм чистится от
+warm-up строк с NaN в фичах (CatBoost терпит NaN, sklearn — нет; отбор по доступности фич, не по
+таргету). Каждая семья логируется отдельным прогоном в эксперимент **`trend-model-comparison`**
+(конфиг + средние ROC-AUC/accuracy/F1). **Регистрации модели НЕТ** — это одноразовый
+подтверждающий эксперимент. В конце — событие `comparison_complete` со списком всех семей и их
+превышением baseline.
+
 ## Методологические инварианты (ml-spec)
 
 - Валидация **только** walk-forward / `TimeSeriesSplit` (`gap = HORIZON_DAYS`); случайный

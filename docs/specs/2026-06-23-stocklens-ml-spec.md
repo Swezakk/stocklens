@@ -137,8 +137,10 @@ api/ml/
 
 - **Кастомный тонкий образ [`services/mlflow/Dockerfile`](../../services/mlflow/Dockerfile),
   НЕ официальный напрямую.** `ghcr.io/mlflow/mlflow` **не содержит драйвер PostgreSQL**
-  (mlflow/mlflow#9513) — без него сервер с `--backend-store-uri postgresql+psycopg://` не
-  стартует. Образ = `FROM ghcr.io/mlflow/mlflow:v3.14.0` + `pip install "psycopg[binary]"`.
+  (mlflow/mlflow#9513) — без него сервер с `--backend-store-uri postgresql+psycopg2://` не
+  стартует. Образ = `FROM ghcr.io/mlflow/mlflow:v3.14.0` + `pip install "psycopg2-binary"`
+  (именно psycopg2, НЕ psycopg3: на psycopg3 ломается резолюция `models:/<name>@<alias>` —
+  `operator does not exist: integer = character varying`; обоснование — в комментарии Dockerfile).
   Версия `v3.14.0` пинится **под версию клиента** в `ml/pyproject` (`mlflow>=3.1,<4` →
   установлен 3.14.0), чтобы схема реестра совпадала. Prod тянет
   `ghcr.io/swezakk/stocklens-mlflow` (сборка/публикация — в CI, job `publish`).
@@ -618,8 +620,13 @@ TDD обязателен для всей бизнес-логики (§12 гла�
 
 ### 11.3. Smoke интеграции
 
-- Compose поднимает `mlflow` (healthcheck зелёный); API `lifespan` грузит обе модели;
-  `/health/ready` = 200 после загрузки.
+- Интеграционный smoke на **testcontainers**
+  (`services/api/tests/integration/test_mlflow_registry_smoke.py`), НЕ docker-compose-в-CI
+  (тот флакозен; проект использует testcontainers как для PG/Redis): PG-backed `mlflow` с
+  `--serve-artifacts` поднимается контейнером, обе модели регистрируются по алиасу
+  `production`, прод-`load_bundle` резолвит их через serve-artifacts, и реальный `lifespan`
+  приложения даёт `/health/ready` = 200. Идёт в CI-джобе `api`. Несущие детали сетапа
+  (psycopg2-образ, БД `mlflow`, allowed-hosts с портом) — в docstring теста и тикете a1c4f7e2.
 
 ---
 

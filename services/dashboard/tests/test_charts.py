@@ -19,6 +19,7 @@ from dashboard.api_client.dto import (
     VolatilityRegimeOut,
 )
 from dashboard.components.charts import (
+    _FORWARD_HORIZON_DAYS,
     _add_business_days,
     _rebase_to_100,
     build_candlestick_chart,
@@ -199,15 +200,18 @@ def test_forecast_vs_actual_chart_realized_line_and_forecast_markers() -> None:
 
 
 def test_forecast_vs_actual_chart_skips_none_values() -> None:
+    realized_anchor = date(2026, 6, 19)
+    forecast_anchor = date(2026, 6, 18)
     points = [
-        VolatilityForecastPointOut(date=date(2026, 6, 18), forecast=0.03, realized=None),
-        VolatilityForecastPointOut(date=date(2026, 6, 19), forecast=None, realized=0.035),
+        VolatilityForecastPointOut(date=forecast_anchor, forecast=0.03, realized=None),
+        VolatilityForecastPointOut(date=realized_anchor, forecast=None, realized=0.035),
     ]
     fig = build_forecast_vs_actual_chart(points)
     # Реализованная линия — только дата с realized; прогноз-точки — только дата с forecast.
-    assert tuple(fig.data[0].x) == (date(2026, 6, 19),)
+    # Обе x-даты сдвинуты на горизонт 5 рабочих дней (точка = конец 5-дн окна).
+    assert tuple(fig.data[0].x) == (_add_business_days(realized_anchor, _FORWARD_HORIZON_DAYS),)
     assert fig.data[0].y == pytest.approx((3.5,))
-    assert tuple(fig.data[1].x) == (date(2026, 6, 18),)
+    assert tuple(fig.data[1].x) == (_add_business_days(forecast_anchor, _FORWARD_HORIZON_DAYS),)
     assert fig.data[1].y == pytest.approx((3.0,))
 
 
@@ -268,3 +272,96 @@ def test_forecast_vs_actual_chart_with_forward_adds_third_trace() -> None:
     trace = fig.data[2]
     assert trace.name == "Прогноз вперёд (5 дн)"
     assert trace.line.dash == "dash"
+
+
+def test_forecast_and_realized_for_same_anchor_align_on_same_x() -> None:
+    """Точка с forecast и realized на один anchor ложится на одну x в обоих трейсах.
+
+    Инвариант вертикального сравнения: одинаковый сдвиг применяется к прогнозу и факту,
+    поэтому над/недо-прогноз читается по вертикали. Сдвинутая x = anchor + 5 рабочих дней.
+    """
+    anchor = date(2026, 6, 18)
+    points = [
+        VolatilityForecastPointOut(date=anchor, forecast=0.03, realized=0.025),
+    ]
+    fig = build_forecast_vs_actual_chart(points)
+    expected_x = _add_business_days(anchor, _FORWARD_HORIZON_DAYS)
+    realized_x = tuple(fig.data[0].x)
+    forecast_x = tuple(fig.data[1].x)
+    assert realized_x == (expected_x,)
+    assert forecast_x == (expected_x,)
+    assert realized_x == forecast_x
+
+
+def test_realized_line_shifted_by_horizon_business_days() -> None:
+    """X факта = anchor + 5 рабочих дней (точка = 5-дн волатильность, заканчивающаяся датой)."""
+    anchor = date(2026, 6, 18)
+    points = [
+        VolatilityForecastPointOut(date=anchor, forecast=None, realized=0.025),
+    ]
+    fig = build_forecast_vs_actual_chart(points)
+    assert tuple(fig.data[0].x) == (_add_business_days(anchor, _FORWARD_HORIZON_DAYS),)
+
+
+def test_forward_projection_unchanged() -> None:
+    """Пунктир форвардного прогноза по-прежнему охватывает predicted_for → +5 рабочих дней."""
+    points = [
+        VolatilityForecastPointOut(date=date(2026, 6, 18), forecast=0.03, realized=0.025),
+    ]
+    predicted_for = date(2026, 6, 20)
+    forward = VolatilityRegimeOut(
+        ticker="SBER",
+        predicted_for=predicted_for,
+        volatility=0.041,
+        threshold=0.035,
+        is_elevated=True,
+        quantile=0.90,
+        lookback=252,
+    )
+    fig = build_forecast_vs_actual_chart(points, forward=forward)
+    forward_trace = fig.data[2]
+    expected_end = _add_business_days(predicted_for, _FORWARD_HORIZON_DAYS)
+    assert tuple(forward_trace.x) == (predicted_for, expected_end)
+
+
+def test_today_reference_line_present_at_forward_predicted_for() -> None:
+    """При заданном forward — вертикаль «сегодня» на predicted_for (as-of дата)."""
+    points = [
+        VolatilityForecastPointOut(date=date(2026, 6, 18), forecast=0.03, realized=0.025),
+    ]
+    predicted_for = date(2026, 6, 20)
+    forward = VolatilityRegimeOut(
+        ticker="SBER",
+        predicted_for=predicted_for,
+        volatility=0.041,
+        threshold=0.035,
+        is_elevated=True,
+        quantile=0.90,
+        lookback=252,
+    )
+    fig = build_forecast_vs_actual_chart(points, forward=forward)
+    assert any(shape.x0 == predicted_for.isoformat() for shape in fig.layout.shapes)
+    assert any(annotation.text == "сегодня" for annotation in fig.layout.annotations)
+
+
+def test_today_reference_line_at_realized_edge_without_forward() -> None:
+    """Без forward вертикаль «сегодня» — на правом крае сдвинутого факта (max realized)."""
+    last_anchor = date(2026, 6, 19)
+    points = [
+        VolatilityForecastPointOut(date=date(2026, 6, 18), forecast=None, realized=0.025),
+        VolatilityForecastPointOut(date=last_anchor, forecast=None, realized=0.035),
+    ]
+    fig = build_forecast_vs_actual_chart(points)
+    expected_edge = _add_business_days(last_anchor, _FORWARD_HORIZON_DAYS).isoformat()
+    assert any(shape.x0 == expected_edge for shape in fig.layout.shapes)
+    assert any(annotation.text == "сегодня" for annotation in fig.layout.annotations)
+
+
+def test_no_today_reference_without_forward_and_without_realized() -> None:
+    """Без forward и без реализованных точек линию «сегодня» рисовать не на чем — пропуск."""
+    points = [
+        VolatilityForecastPointOut(date=date(2026, 6, 18), forecast=0.03, realized=None),
+    ]
+    fig = build_forecast_vs_actual_chart(points)
+    assert all(annotation.text != "сегодня" for annotation in fig.layout.annotations)
+    assert len(fig.layout.shapes) == 0

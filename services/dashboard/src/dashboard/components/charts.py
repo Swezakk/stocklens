@@ -30,6 +30,14 @@ from dashboard.components.transforms import DeltaDirection, SentimentDayPoint
 #: Перевод доли волатильности в проценты для оси графика (0.03 → 3.0%).
 _VOLATILITY_PERCENT = 100.0
 
+#: Горизонт прогноза волатильности — 5 торговых дней (ml-spec §10). Точка ряда «прогноз
+#: vs факт» означает 5-дн волатильность, заканчивающуюся в её дате, поэтому x-даты факта и
+#: прогноза сдвигаются на этот горизонт; форвардный пунктир тянется на столько же вперёд.
+_FORWARD_HORIZON_DAYS = 5
+
+#: Подпись вертикали «сегодня» (граница между реализованной историей и форвардным прогнозом).
+_TODAY_REFERENCE_LABEL = "сегодня"
+
 #: Высота субплота объёма относительно цены (candlestick доминирует, объём — подложка).
 _VOLUME_ROW_HEIGHT = 0.22
 
@@ -282,17 +290,24 @@ def build_forecast_vs_actual_chart(
 ) -> go.Figure:
     """Прогноз волатильности vs реализованная (sqrt(rv_target)) за окно (DESIGN §5, ml-spec §10).
 
-    Реализованная (факт) — плотная линия-референс приглушённым цветом; выпущенные прогнозы —
-    точки акцент-тилом поверх (видно над/недо-прогноз). Это track record выпущенных прогнозов,
-    не walk-forward кривая (метрика QLIKE — оффлайн, на плашке). Реализованная серия обрывается
-    ~5 торговых дней до правого края (исход 5-дн окна ещё не известен) — это «исход ожидается».
+    Каждая точка означает 5-дн волатильность, ЗАКАНЧИВАЮЩУЮСЯ в её дате: значение по anchor
+    ``t`` — реализация за окно ``t+1..t+5``, поэтому x-даты факта и прогноза сдвигаются на
+    ``_FORWARD_HORIZON_DAYS`` рабочих дней вперёд (к концу окна). Сдвиг ИДЕНТИЧЕН для обоих
+    рядов — точка с прогнозом и фактом остаётся на одной x (над/недо-прогноз читается по
+    вертикали). Реализованная (факт) — плотная линия-референс приглушённым цветом и доходит
+    почти до «сегодня»; выпущенные прогнозы — точки акцент-тилом поверх. Это track record
+    выпущенных прогнозов, не walk-forward кривая (метрика QLIKE — оффлайн, на плашке).
 
     ``forward`` — необязательный форвардный режим: когда задан, добавляется третий трейс —
     пунктирная горизонтальная линия на уровне forward.volatility*100% от ``predicted_for``
-    на 5 рабочих дней вперёд. Отсутствие ``forward`` не меняет существующие два трейса.
+    на ``_FORWARD_HORIZON_DAYS`` рабочих дней вперёд (исход ещё не созрел). Отсутствие
+    ``forward`` не меняет существующие два трейса. Вертикаль «сегодня» (на ``predicted_for``
+    либо на правом крае факта) отделяет реализованную историю от форвардной зоны.
     """
     realized_dates, realized_pcts = _present_series(points, lambda point: point.realized)
     forecast_dates, forecast_pcts = _present_series(points, lambda point: point.forecast)
+    realized_dates = [_add_business_days(d, _FORWARD_HORIZON_DAYS) for d in realized_dates]
+    forecast_dates = [_add_business_days(d, _FORWARD_HORIZON_DAYS) for d in forecast_dates]
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
@@ -314,8 +329,36 @@ def build_forecast_vs_actual_chart(
     )
     if forward is not None:
         _add_forward_projection(fig, forward)
+    _add_today_reference(fig, forward, realized_dates)
     fig.update_layout(yaxis_title="Волатильность, % (5 дн)")
     return theme.apply_dark_template(fig)
+
+
+def _add_today_reference(
+    fig: go.Figure,
+    forward: VolatilityRegimeOut | None,
+    realized_dates: Sequence[date],
+) -> None:
+    """Нанести вертикаль «сегодня» — границу между реализованной историей и прогнозом.
+
+    «Сегодня» = ``forward.predicted_for`` (as-of дата) когда форвард задан; иначе — правый
+    край реализованного ряда. Без форварда и без факта линию рисовать не на чем — пропуск.
+    Дата передаётся ISO-строкой: ``add_vline`` с ``date`` падает на date-оси (date не
+    суммируется) — та же причина, что у ex-дивидендных отсечек.
+    """
+    if forward is not None:
+        today = forward.predicted_for
+    elif realized_dates:
+        today = max(realized_dates)
+    else:
+        return
+    fig.add_vline(
+        x=today.isoformat(),
+        line_dash="dot",
+        line_color=theme.MUTED_TEXT,
+        annotation_text=_TODAY_REFERENCE_LABEL,
+        annotation_position="top",
+    )
 
 
 def _add_forward_projection(fig: go.Figure, forward: VolatilityRegimeOut) -> None:
@@ -326,7 +369,7 @@ def _add_forward_projection(fig: go.Figure, forward: VolatilityRegimeOut) -> Non
     """
     vol_pct = forward.volatility * _VOLATILITY_PERCENT
     start = forward.predicted_for
-    end = _add_business_days(start, 5)
+    end = _add_business_days(start, _FORWARD_HORIZON_DAYS)
     fig.add_trace(
         go.Scatter(
             x=[start, end],

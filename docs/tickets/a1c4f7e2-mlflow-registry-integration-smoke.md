@@ -70,8 +70,11 @@ v1, QLIKE 0.698 vs baseline 1.589). Артефакт-резолюция чере
   `app.state.ml`. GET `/health/ready` → 200, `models = ok`, `status = ready`.
 
 Прогон — в существующем CI-job `api` (testcontainers + Docker уже доступны на раннере;
-фикстура собирает образ сама, слой-кэш делает сборку идемпотентной). Правок `ci.yml`
-не потребовалось.
+integration-тесты не деселектятся — дефолтного `-m "not integration"` нет). Правок `ci.yml`
+не потребовалось. **Важно:** слой-кэш делает пересборку идемпотентной **локально**, но между
+ранами GitHub Actions persistent-кэша слоёв нет — каждый api-CI-ран тянет базовый
+`ghcr.io/mlflow/mlflow` (~1GB) холодно. Оптимизация (pull прод-образа / GHA-кэш / вынос в
+отдельный job) — [#c7a2f9e4](c7a2f9e4-mlflow-smoke-cold-image-build-ci-cost.md).
 
 Три несущих элемента сетапа (load-bearing, иначе путь не воспроизводится) зафиксированы
 в docstring теста:

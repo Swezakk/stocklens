@@ -28,6 +28,10 @@ dependencies = [
     "stocklens-ml",
     "arch>=7.2",
     "mlflow>=3.1,<4",
+    # Инференс тренда (ml-spec §8.3): нативный CatBoost-артефакт грузится
+    # mlflow.catboost.load_model → нужен catboost в рантайме API. Пин <2 — совместимость
+    # с артефактом обучения (catboost 1.2.x); sklearn остаётся в ml[train], в образ не течёт.
+    "catboost>=1.2,<2",
     # Security floor для транзитивной зависимости (через mlflow): msgpack<1.2.1 уязвим
     # GHSA-6v7p-g79w-8964 (краш процесса при повторном Unpacker после ошибки).
     "msgpack>=1.2.1",

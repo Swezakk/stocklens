@@ -3,6 +3,7 @@
 from datetime import date
 
 from pydantic import BaseModel, Field, field_validator
+from stocklens_core.enums import TrendDirection
 
 
 class VolatilityPredictionIn(BaseModel):
@@ -107,3 +108,49 @@ class ForecastRefreshOut(BaseModel):
 
     accepted: bool
     reason: str | None = None
+
+
+class ShapContribution(BaseModel):
+    """Вклад одной фичи в предсказание тренда (ml-spec §8.3).
+
+    SHAP передаётся списком пар «фича → вклад», а не словарём ``dict[str, float]`` из §8.3:
+    список сохраняет порядок фич и моделирует каждую запись явной DTO-моделью.
+    """
+
+    feature: str
+    value: float
+
+
+class TrendPredictionIn(BaseModel):
+    """Запрос прогноза направления тренда по тикеру."""
+
+    ticker: str = Field(min_length=1, max_length=16)
+
+    @field_validator("ticker")
+    @classmethod
+    def _normalize_ticker(cls, value: str) -> str:
+        """Тикеры MOEX — в верхнем регистре; нормализуем, чтобы 'sber' находил 'SBER'."""
+        return value.strip().upper()
+
+
+class TrendPredictionOut(BaseModel):
+    """Ответ прогноза направления тренда (ml-spec §8.3).
+
+    ``protected_namespaces=()`` — поле ``model_version`` иначе конфликтует с защищённым
+    неймспейсом Pydantic v2 (``model_*``).
+
+    Вероятностная оценка, а не торговый сигнал: ``direction`` выводится из ``prob_up``.
+    ``shap`` — список вкладов фич (см. :class:`ShapContribution`), ``base_value`` —
+    ожидаемое значение модели до учёта вкладов.
+    """
+
+    model_config = {"protected_namespaces": ()}
+
+    ticker: str
+    predicted_for: date
+    horizon_days: int
+    prob_up: float = Field(ge=0, le=1)
+    direction: TrendDirection
+    shap: list[ShapContribution]
+    base_value: float
+    model_version: str

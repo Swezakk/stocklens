@@ -30,6 +30,16 @@ class PredictionKind(StrEnum):
     TREND = "trend"
 
 
+class TrendDirection(StrEnum):
+    """Направление прогноза тренда: классификация вверх/вниз (ml-spec §8.3).
+
+    Вероятностная оценка, а не торговый сигнал: ``UP`` соответствует ``prob_up >= 0.5``.
+    """
+
+    UP = "up"
+    DOWN = "down"
+
+
 class Currency(StrEnum):
     """Поддерживаемые валюты для котировок ЦБ и дивидендных выплат."""
 

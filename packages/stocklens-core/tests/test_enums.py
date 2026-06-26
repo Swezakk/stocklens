@@ -6,6 +6,7 @@ from stocklens_core.enums import (
     Currency,
     PredictionKind,
     SentimentLabel,
+    TrendDirection,
 )
 
 
@@ -40,6 +41,15 @@ def test_prediction_kind_is_str() -> None:
     assert isinstance(PredictionKind.VOLATILITY, str)
 
 
+def test_trend_direction_values() -> None:
+    assert TrendDirection.UP.value == "up"
+    assert TrendDirection.DOWN.value == "down"
+
+
+def test_trend_direction_is_str() -> None:
+    assert isinstance(TrendDirection.UP, str)
+
+
 def test_currency_values() -> None:
     assert Currency.RUB.value == "RUB"
     assert Currency.USD.value == "USD"
@@ -67,5 +77,6 @@ def test_all_enums_have_no_extra_members() -> None:
     assert len(CollectorRunStatus) == 3
     assert len(SentimentLabel) == 3
     assert len(PredictionKind) == 2
+    assert len(TrendDirection) == 2
     assert len(Currency) == 4
     assert len(AlertKind) == 4

@@ -13,6 +13,8 @@ from api.repositories.prediction import SqlPredictionRepository
 from api.repositories.security import SqlSecurityRepository
 from api.repositories.volatility_features import SqlVolatilityFeatureRepository
 from api.schemas.predict import (
+    TrendPredictionIn,
+    TrendPredictionOut,
     VolatilityForecastHistoryOut,
     VolatilityPredictionIn,
     VolatilityPredictionOut,
@@ -71,3 +73,23 @@ async def predict_volatility(
 ) -> VolatilityPredictionOut:
     """Прогноз волатильности: тикер → 5-дневная волатильность + метрики vs baseline."""
     return await _service(session, bundle, settings).predict_volatility(payload.ticker)
+
+
+@router.post(
+    "/trend",
+    response_model=TrendPredictionOut,
+    summary="Прогноз направления тренда",
+    description=(
+        "Возвращает вероятность роста P(up) тикера на горизонт модели, метку направления "
+        "(UP/DOWN из P(up)) и SHAP-вклады фич (ml-spec §8.4). Это вероятностная оценка, "
+        "а не торговый сигнал."
+    ),
+)
+async def predict_trend(
+    payload: TrendPredictionIn,
+    session: SessionDep,
+    bundle: MlBundleDep,
+    settings: SettingsDep,
+) -> TrendPredictionOut:
+    """Прогноз тренда: тикер → P(up) + направление + SHAP-вклады фич."""
+    return await _service(session, bundle, settings).predict_trend(payload.ticker)

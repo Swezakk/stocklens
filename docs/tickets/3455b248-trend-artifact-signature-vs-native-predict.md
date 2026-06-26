@@ -1,7 +1,7 @@
 ---
 id: 3455b248
 title: "Trend-артефакт: signature декларирует P(up) float, нативный pyfunc.predict отдаёт класс {0,1}"
-status: open
+status: resolved
 priority: medium
 component: ml
 discovered: 2026-06-25
@@ -10,6 +10,12 @@ tags: ["ml", "mlflow", "serving", "catboost", "signature", "contract"]
 ---
 
 # 3455b248: Trend-артефакт: signature декларирует P(up) float, нативный pyfunc.predict отдаёт класс {0,1}
+
+## Resolution
+
+Serving-вертикаль T2 грузит trend-модель через `mlflow.catboost.load_model` и берёт P(up) из
+`predict_proba(...)[:, 1]` (минуя pyfunc `.predict()`, отдающий метку класса), SHAP считается
+on-demand нативным `get_feature_importance` — декларированная signature совпадает с инференсом.
 
 ## What was observed
 

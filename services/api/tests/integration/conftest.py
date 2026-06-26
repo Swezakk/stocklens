@@ -26,7 +26,13 @@ from api.core.cache import RedisClientProtocol
 from api.core.db import get_redis, get_session
 from api.core.settings import ApiSettings
 from api.main import create_app
-from api.ml.bundle import LoadedVolatilityModel, ModelBundle
+from api.ml.bundle import (
+    LoadedTrendModel,
+    LoadedVolatilityModel,
+    ModelBundle,
+    TrendShapResult,
+)
+from api.ml.trend import TREND_FEATURE_COLUMNS
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -56,6 +62,18 @@ os.environ["AUTH_OWNER_PASSWORD"] = _TEST_OWNER_CREDENTIAL
 #: Дисперсия стаб-модели (доли²) → волатильность sqrt = 0.03.
 STUB_VARIANCE = 0.0009
 
+#: P(up) стаб-модели тренда ≥ 0.5 → direction = TrendDirection.UP.
+STUB_PROB_UP = 0.73
+
+#: Базовое значение SHAP (логит) стаб-модели тренда.
+STUB_TREND_BASE_VALUE = 0.12
+
+#: Версия стаб-модели тренда.
+STUB_TREND_MODEL_VERSION = "test-trend-1"
+
+#: Горизонт стаб-модели тренда (дни).
+STUB_TREND_HORIZON_DAYS = 5
+
 
 class _StubVolatilityPredictor:
     """Стаб модели волатильности: возвращает фиксированную дисперсию (без MLflow/arch)."""
@@ -64,8 +82,28 @@ class _StubVolatilityPredictor:
         return np.array([STUB_VARIANCE], dtype=np.float64)
 
 
+class _StubTrendPredictor:
+    """Стаб модели тренда: фиксированный P(up) + детерминированный SHAP (без MLflow/catboost).
+
+    ``predict_proba`` отдаёт ``STUB_PROB_UP`` на каждую строку; ``shap`` — единичные вклады
+    по числу фич TREND_FEATURE_COLUMNS и фиксированное базовое значение. SHAP-вклады — 2D
+    формы (1, n_features), зеркало нативного CatBoost (срез без столбца базового значения).
+    """
+
+    def predict_proba(self, x: pd.DataFrame) -> npt.NDArray[np.float64]:
+        return np.full(len(x), STUB_PROB_UP, dtype=np.float64)
+
+    def shap(self, x: pd.DataFrame) -> TrendShapResult:
+        contribs = np.full((1, len(TREND_FEATURE_COLUMNS)), 0.05, dtype=np.float64)
+        return TrendShapResult(
+            contribs=contribs,
+            base_value=STUB_TREND_BASE_VALUE,
+            feature_names=list(TREND_FEATURE_COLUMNS),
+        )
+
+
 def stub_bundle() -> ModelBundle:
-    """Bundle с загруженной стаб-моделью волатильности — имитация прод-состояния (§8.1)."""
+    """Bundle со стаб-моделями волатильности и тренда — имитация прод-состояния (§8.1)."""
     return ModelBundle(
         volatility=LoadedVolatilityModel(
             predictor=_StubVolatilityPredictor(),
@@ -73,7 +111,12 @@ def stub_bundle() -> ModelBundle:
             method="garch",
             metrics={"qlike": 0.844, "qlike_baseline": 2.203, "rmse": 0.0025},
             horizon_days=5,
-        )
+        ),
+        trend=LoadedTrendModel(
+            predictor=_StubTrendPredictor(),
+            model_version=STUB_TREND_MODEL_VERSION,
+            horizon_days=STUB_TREND_HORIZON_DAYS,
+        ),
     )
 
 

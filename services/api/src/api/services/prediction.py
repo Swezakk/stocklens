@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import structlog
 from starlette.concurrency import run_in_threadpool
-from stocklens_core.enums import PredictionKind
+from stocklens_core.enums import PredictionKind, TrendDirection
 from stocklens_core.models.market import Security
 from stocklens_ml.eval.metrics import qlike, rmse
 from stocklens_ml.models.baselines import rw_rv_forecast
@@ -25,8 +25,14 @@ from api.core.exceptions import (
     SecurityNotFoundError,
 )
 from api.core.settings import ApiSettings
-from api.ml.bundle import LoadedVolatilityModel, ModelBundle
+from api.ml.bundle import (
+    LoadedVolatilityModel,
+    ModelBundle,
+    TrendPredictor,
+    TrendShapResult,
+)
 from api.ml.features import MIN_VOLATILITY_HISTORY, SERVING_FEATURES, build_serving_frame
+from api.ml.trend import TREND_FEATURE_COLUMNS, build_serving_trend_frame
 from api.repositories.protocols import (
     PredictionRepository,
     SecurityRepository,
@@ -34,6 +40,8 @@ from api.repositories.protocols import (
 )
 from api.schemas.predict import (
     ForecastRefreshSummary,
+    ShapContribution,
+    TrendPredictionOut,
     VolatilityForecastHistoryOut,
     VolatilityForecastPoint,
     VolatilityMetrics,
@@ -51,6 +59,15 @@ MIN_LIVE_PAIRS = 10
 
 #: Размер страницы при переборе активных бумаг. Цикл пагинирует до упора — это не потолок.
 _REFRESH_PAGE_SIZE = 500
+
+#: Порог P(up) для метки направления тренда (ml-spec §4.5): >= порога → UP, иначе DOWN.
+#: Симметричен бинарному таргету обучения (ln(close_{t+H}/close_t) > 0).
+_TREND_UP_THRESHOLD = 0.5
+
+#: Минимум валидных строк фич тренда для прогноза. As-of строка с NaN в TREND_FEATURE_COLUMNS
+#: означает непрогретые окна (RSI/MACD/realized_vol) — прогноз не строится. Значение —
+#: документированный ориентир для сообщения об ошибке (на поведение не влияет: решает NaN-гард).
+_MIN_TREND_HISTORY = 60
 
 logger = structlog.get_logger(__name__)
 
@@ -156,6 +173,78 @@ class PredictionService:
                 rmse=result.model.metrics["rmse"],
             ),
         )
+
+    async def predict_trend(self, ticker: str) -> TrendPredictionOut:
+        """Прогноз направления тренда по тикеру: P(up) + метка направления + SHAP-вклады.
+
+        Зеркало predict_volatility, но без read-through кэша: DTO несёт SHAP+base_value,
+        которые есть только в результате get_feature_importance, поэтому кэш-хит не смог бы
+        наполнить ответ — инференс выполняется всегда (идемпотентно перезаписываем P(up)).
+
+        Raises:
+            ModelNotLoadedError: модель тренда не загружена из реестра.
+            SecurityNotFoundError: тикер не найден в БД.
+            InsufficientHistoryError: as-of строка фич содержит NaN (непрогретые окна).
+        """
+        model = self._bundle.trend
+        if model is None:
+            raise ModelNotLoadedError(self._settings.ml_trend_model)
+
+        security = await self._security_repo.get_by_ticker(ticker)
+        if security is None:
+            raise SecurityNotFoundError(ticker)
+
+        frame = build_serving_trend_frame(
+            await self._feature_repo.load_candles(security.id),
+            await self._feature_repo.load_dividends(security.id),
+            await self._feature_repo.load_splits(security.id),
+            train_start=self._settings.ml_train_start,
+            horizon=model.horizon_days,
+        )
+
+        features = frame[TREND_FEATURE_COLUMNS]
+        if frame.empty or bool(features.iloc[-1].isna().any()):
+            available = int(features.notna().all(axis=1).sum())
+            raise InsufficientHistoryError(ticker, available, _MIN_TREND_HISTORY)
+
+        predicted_for = pd.Timestamp(frame.iloc[-1]["trade_date"]).date()
+        asof_row = features.iloc[[-1]]
+
+        prob_up, shap = await run_in_threadpool(self._infer_trend, model.predictor, asof_row)
+
+        direction = TrendDirection.UP if prob_up >= _TREND_UP_THRESHOLD else TrendDirection.DOWN
+
+        await self._prediction_repo.upsert(
+            security.id,
+            predicted_for,
+            model.horizon_days,
+            PredictionKind.TREND,
+            prob_up,
+            model.model_version,
+        )
+
+        return TrendPredictionOut(
+            ticker=security.ticker,
+            predicted_for=predicted_for,
+            horizon_days=model.horizon_days,
+            prob_up=prob_up,
+            direction=direction,
+            shap=[
+                ShapContribution(feature=name, value=float(value))
+                for name, value in zip(shap.feature_names, shap.contribs[0], strict=True)
+            ],
+            base_value=shap.base_value,
+            model_version=model.model_version,
+        )
+
+    @staticmethod
+    def _infer_trend(
+        predictor: TrendPredictor, asof_row: pd.DataFrame
+    ) -> tuple[float, TrendShapResult]:
+        """Один проход CatBoost на as-of строке: P(up) + SHAP. Выполняется в threadpool."""
+        prob_up = float(predictor.predict_proba(asof_row)[0])
+        shap = predictor.shap(asof_row)
+        return prob_up, shap
 
     async def assess_volatility_regime(
         self, ticker: str, quantile: float, lookback: int

@@ -17,7 +17,7 @@ ROC-AUC (инвариант к балансу классов): модель за
 
 import argparse
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import mlflow.catboost
 import numpy as np
@@ -36,10 +36,14 @@ from stocklens_ml.eval import walk_forward
 from stocklens_ml.features import assemble
 from stocklens_ml.features.assemble import TREND_FEATURE_COLUMNS, TREND_TARGET_COLUMN
 from stocklens_ml.models.baselines import always_up_forecast
-from stocklens_ml.models.trend import TrendModel
+from stocklens_ml.models.trend import TrendHyperparams, TrendModel
 from stocklens_ml.registry import promote
 
 _log = structlog.get_logger(__name__)
+
+#: Дефолтные гиперпараметры тренда — стартовые значения спеки §5.4 (синглтон, frozen → safe
+#: как default-аргумент: вызов TrendHyperparams() в сигнатуре споткнулся бы о B008).
+_DEFAULT_HYPERPARAMS = TrendHyperparams()
 
 _EXPERIMENT = "trend"
 #: Метод-baseline тренда (always-up, P(up)=1) — точка отсчёта гейта.
@@ -106,6 +110,7 @@ def _fit_with_purged_validation(
     train_idx: npt.NDArray[np.intp],
     horizon: int,
     iterations: int | None = None,
+    hyperparams: TrendHyperparams = _DEFAULT_HYPERPARAMS,
 ) -> TrendModel:
     """Обучить TrendModel с early-stop валидационным хвостом и H-дневным purge перед ним.
 
@@ -113,12 +118,20 @@ def _fit_with_purged_validation(
     (хвост train), ``fit_idx = train_idx[:-(V+horizon)]``. ``horizon`` строк между fit и val
     выбрасываются: их forward-таргет перекрывает val-окно, иначе число деревьев тюнилось бы на
     метках, смежных с валидацией. Если fit_idx пуст (train слишком короткий) — фит без eval_set.
-    ``iterations`` (опционально) переопределяет число деревьев — тесты задают крошечное число.
+    ``hyperparams`` задаёт глубину/L2/шаг/число деревьев (по умолчанию — стартовые §5.4).
+    ``iterations`` (опционально) переопределяет число деревьев в ``hyperparams`` — тесты задают
+    крошечное число.
     """
     validation_size = _validation_size(len(train_idx), horizon)
     val_idx = train_idx[-validation_size:]
     fit_idx = train_idx[: -(validation_size + horizon)]
-    model = TrendModel() if iterations is None else TrendModel(iterations=iterations)
+    effective = hyperparams if iterations is None else replace(hyperparams, iterations=iterations)
+    model = TrendModel(
+        iterations=effective.iterations,
+        depth=effective.depth,
+        learning_rate=effective.learning_rate,
+        l2_leaf_reg=effective.l2_leaf_reg,
+    )
     if len(fit_idx) == 0:
         return model.fit(x.iloc[train_idx], y.iloc[train_idx])
     return model.fit(
@@ -128,8 +141,14 @@ def _fit_with_purged_validation(
     )
 
 
-def _catboost_forecaster(horizon: int) -> walk_forward.Forecaster:
-    """Форкастер тренда: фит CatBoost на purged train-окне → P(up) на test-строках."""
+def _catboost_forecaster(
+    horizon: int, hyperparams: TrendHyperparams = _DEFAULT_HYPERPARAMS
+) -> walk_forward.Forecaster:
+    """Форкастер тренда: фит CatBoost на purged train-окне → P(up) на test-строках.
+
+    ``hyperparams`` параметризует фит (по умолчанию — стартовые §5.4); sweep подменяет на
+    конфиг из грида, не дублируя логику форкастера.
+    """
 
     def forecaster(
         frame: pd.DataFrame,
@@ -138,7 +157,9 @@ def _catboost_forecaster(horizon: int) -> walk_forward.Forecaster:
     ) -> npt.NDArray[np.float64]:
         x = frame[TREND_FEATURE_COLUMNS]
         y = frame[TREND_TARGET_COLUMN]
-        model = _fit_with_purged_validation(x, y, train_idx=train_idx, horizon=horizon)
+        model = _fit_with_purged_validation(
+            x, y, train_idx=train_idx, horizon=horizon, hyperparams=hyperparams
+        )
         return model.predict_proba(x.iloc[test_idx])
 
     return forecaster
@@ -154,10 +175,12 @@ def _always_up_forecaster(
     return np.asarray(forecast, dtype=np.float64)
 
 
-def _forecasters(horizon: int) -> dict[str, walk_forward.Forecaster]:
-    """Набор форкастеров тренда: обучаемый CatBoost + always-up baseline."""
+def _forecasters(
+    horizon: int, hyperparams: TrendHyperparams = _DEFAULT_HYPERPARAMS
+) -> dict[str, walk_forward.Forecaster]:
+    """Набор форкастеров тренда: обучаемый CatBoost (под ``hyperparams``) + always-up baseline."""
     return {
-        _METHOD_CATBOOST: _catboost_forecaster(horizon),
+        _METHOD_CATBOOST: _catboost_forecaster(horizon, hyperparams),
         _BASELINE: _always_up_forecaster,
     }
 
@@ -240,12 +263,15 @@ def register_champion(
     frames: list[pd.DataFrame],
     client: MlflowClient | None = None,
     iterations: int | None = None,
+    hyperparams: TrendHyperparams = _DEFAULT_HYPERPARAMS,
 ) -> ModelInfo:
     """Обучить финальную модель на полном окне и зарегистрировать версию + алиас champion.
 
     Финальный фит — на пуле всех тикеров (как HAR-коэффициенты волатильности) с тем же
     early-stop карвингом, что и в walk-forward. Логируется НАТИВНО через ``mlflow.catboost``
-    (артефакт самодостаточен). ``iterations`` опционален — тесты задают крошечное число.
+    (артефакт самодостаточен). ``hyperparams`` — финализированный на walk-forward набор
+    (по умолчанию — стартовые §5.4); подобранный sweep'ом конфиг передаётся сюда для
+    регистрации champion на нём. ``iterations`` опционален — тесты задают крошечное число.
     """
     client = client or MlflowClient()
     pooled = _drop_unlabelled(pd.concat(frames, ignore_index=True))
@@ -253,7 +279,12 @@ def register_champion(
     y = pooled[TREND_TARGET_COLUMN]
     train_idx = np.arange(len(pooled), dtype=np.intp)
     model = _fit_with_purged_validation(
-        x, y, train_idx=train_idx, horizon=settings.horizon_days, iterations=iterations
+        x,
+        y,
+        train_idx=train_idx,
+        horizon=settings.horizon_days,
+        iterations=iterations,
+        hyperparams=hyperparams,
     )
     example = _input_example(pooled)
     signature = infer_signature(example, model.predict_proba(example))

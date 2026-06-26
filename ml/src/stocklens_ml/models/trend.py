@@ -6,6 +6,7 @@
 пакета shap (он тянет numba/llvmlite, конфликтующие с Python 3.12 + numpy 2.x).
 """
 
+from dataclasses import dataclass
 from typing import NamedTuple
 
 import numpy as np
@@ -23,6 +24,22 @@ _DEFAULT_L2_LEAF_REG = 6.0
 _DEFAULT_RANDOM_SEED = 42
 _DEFAULT_AUTO_CLASS_WEIGHTS = "Balanced"
 _DEFAULT_EARLY_STOPPING_ROUNDS = 50
+
+
+@dataclass(frozen=True)
+class TrendHyperparams:
+    """Перебираемые гиперпараметры CatBoost тренда (ml-spec §5.4).
+
+    Поля — только те, что финализируются на walk-forward (число деревьев, глубина, шаг
+    обучения, L2-регуляризация). Значения по умолчанию — стартовые из спеки §5.4 (источник
+    истины — модульные константы ``_DEFAULT_*``, чтобы не дублировать 600/4/0.03/6.0). Не
+    включает loss/eval-метрику/веса классов/seed: они зафиксированы и не тюнятся.
+    """
+
+    iterations: int = _DEFAULT_ITERATIONS
+    depth: int = _DEFAULT_DEPTH
+    learning_rate: float = _DEFAULT_LEARNING_RATE
+    l2_leaf_reg: float = _DEFAULT_L2_LEAF_REG
 
 
 class TrendShap(NamedTuple):

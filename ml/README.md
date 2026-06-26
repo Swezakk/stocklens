@@ -121,6 +121,41 @@ MLFLOW_TRACKING_URI='http://localhost:5000' \
 переносимого ручного состояния не несёт. Продвижение в `production` и откат — те же команды
 `promote_to_production`, что и для волатильности, с именем `stocklens-trend`.
 
+### Подбор гиперпараметров тренда (ml-spec §5.4)
+
+Стартовые гиперпараметры спеки (`iterations=600, depth=4, learning_rate=0.03, l2_leaf_reg=6.0`)
+дали средний walk-forward ROC-AUC ≈ 0.49 по тикерам — модель **не** обошла always-up baseline
+(0.5). Спека §5.4 санкционирует финализацию гиперпараметров на walk-forward (консервативно:
+малая глубина, сильная регуляризация — данных мало, риск переобучения высок). Скрипт `tune_trend`
+выполняет эту финализацию.
+
+```bash
+DATABASE_URL='postgresql+psycopg://user:pass@host:5432/stocklens' \
+MLFLOW_TRACKING_URI='http://localhost:5000' \
+  uv run --project ml --extra train python -m stocklens_ml.training.tune_trend \
+    --tickers SBER GAZP LKOH --n-splits 5 --mlflow-uri http://localhost:5000
+```
+
+Что делает скрипт:
+
+1. Грузит фрейм каждого тикера **один раз** (DB-чтение — медленная часть), затем переоценивает
+   его под каждый конфиг малой консервативной сетки (`depth ∈ {2,3,4} × l2_leaf_reg ∈ {6.0, 12.0}`,
+   `learning_rate=0.03`, `iterations=800` с early-stop — 6 конфигов). Сетка узкая намеренно:
+   глубокие/слабо регуляризованные варианты исключены, чтобы не подгонять под walk-forward (bias
+   отбора).
+2. По каждому конфигу — walk-forward `evaluate_trend` (CatBoost + always-up baseline), среднее
+   ROC-AUC/accuracy/F1 по тикерам. Тикер, упавший на одном конфиге (например одноклассовая
+   test-выборка → ROC-AUC ValueError), пропускается с логом `ticker_skipped` — sweep не падает.
+3. Каждый конфиг логируется отдельным прогоном в эксперимент **`trend-tuning`** (параметры +
+   средние метрики). **Регистрации модели НЕТ** — это только поиск. В конце — отсортированный по
+   ROC-AUC лог и событие `tuning_complete` с лучшим конфигом, его средним ROC-AUC и булевым
+   `beats_baseline` (строгое превышение 0.5).
+
+Выбранный конфиг затем используется для реальной регистрации champion одним из двух способов:
+зашить его в дефолты `TrendHyperparams` (`models/trend.py`) — тогда CLI `train_trend` подхватит
+его автоматически; либо передать программно в `train_trend.register_champion(..., hyperparams=...)`.
+`tune_trend` сам в реестр не пишет — он лишь даёт данные для решения.
+
 ## Методологические инварианты (ml-spec)
 
 - Валидация **только** walk-forward / `TimeSeriesSplit` (`gap = HORIZON_DAYS`); случайный

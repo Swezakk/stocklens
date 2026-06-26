@@ -3,6 +3,7 @@ ROC-AUC baseline gate and native-CatBoost champion registration."""
 
 from pathlib import Path
 
+import mlflow.catboost
 import numpy as np
 import pandas as pd
 import pytest
@@ -11,6 +12,7 @@ from stocklens_ml.features.assemble import (
     TREND_FEATURE_COLUMNS,
     TREND_TARGET_COLUMN,
 )
+from stocklens_ml.models.trend import TrendHyperparams
 from stocklens_ml.training import train_trend
 
 import mlflow
@@ -51,6 +53,67 @@ def _planted_frame(n: int = 360, nan_tail: int = 5, seed: int = _SEED) -> pd.Dat
     frame[TREND_TARGET_COLUMN] = target
     assert list(frame.columns) == [*TREND_FEATURE_COLUMNS, TREND_TARGET_COLUMN]
     return frame
+
+
+def test_default_hyperparams_match_spec_starting_values() -> None:
+    # Дефолты TrendHyperparams = стартовые значения спеки §5.4 (600/4/0.03/6.0).
+    hp = TrendHyperparams()
+    assert hp.iterations == 600
+    assert hp.depth == 4
+    assert hp.learning_rate == pytest.approx(0.03)
+    assert hp.l2_leaf_reg == pytest.approx(6.0)
+
+
+def _labelled_xy() -> tuple[pd.DataFrame, pd.Series]:
+    """Фрейм тренда без NaN-хвоста таргета (метки обязательны для fit/eval_set)."""
+    frame = train_trend._drop_unlabelled(_planted_frame())
+    return frame[TREND_FEATURE_COLUMNS], frame[TREND_TARGET_COLUMN]
+
+
+def test_fit_with_purged_validation_honors_hyperparams() -> None:
+    # Переданный TrendHyperparams строит TrendModel с теми же глубиной/L2 (анти-хардкод).
+    x, y = _labelled_xy()
+    train_idx = np.arange(len(x), dtype=np.intp)
+    hp = TrendHyperparams(iterations=_TINY_ITERATIONS, depth=2, l2_leaf_reg=12.0)
+
+    model = train_trend._fit_with_purged_validation(
+        x, y, train_idx=train_idx, horizon=5, hyperparams=hp
+    )
+
+    params = model._model.get_params()
+    assert params["depth"] == 2
+    assert params["l2_leaf_reg"] == pytest.approx(12.0)
+    assert params["iterations"] == _TINY_ITERATIONS
+
+
+def test_fit_with_purged_validation_iterations_override_wins() -> None:
+    # Явный iterations переопределяет iterations внутри hyperparams (контракт тестов unchanged).
+    x, y = _labelled_xy()
+    train_idx = np.arange(len(x), dtype=np.intp)
+    hp = TrendHyperparams(iterations=600, depth=3)
+
+    model = train_trend._fit_with_purged_validation(
+        x, y, train_idx=train_idx, horizon=5, iterations=_TINY_ITERATIONS, hyperparams=hp
+    )
+
+    params = model._model.get_params()
+    assert params["iterations"] == _TINY_ITERATIONS
+    assert params["depth"] == 3
+
+
+def test_fit_with_purged_validation_default_uses_spec_starting_values() -> None:
+    # Дефолтный путь (без hyperparams) строит модель со стартовыми значениями спеки §5.4.
+    x, y = _labelled_xy()
+    train_idx = np.arange(len(x), dtype=np.intp)
+
+    model = train_trend._fit_with_purged_validation(
+        x, y, train_idx=train_idx, horizon=5, iterations=_TINY_ITERATIONS
+    )
+
+    params = model._model.get_params()
+    assert params["depth"] == 4
+    assert params["l2_leaf_reg"] == pytest.approx(6.0)
+    assert params["learning_rate"] == pytest.approx(0.03)
 
 
 def test_select_winner_returns_model_exceeding_baseline_roc_auc() -> None:
@@ -135,3 +198,19 @@ def test_register_champion_registers_model_and_marks_alias(tmp_path: Path) -> No
     champion = client.get_model_version_by_alias(_settings().trend_model_name, "champion")
     assert str(champion.version) == str(info.registered_model_version)
     assert champion.version is not None
+
+
+def test_register_champion_fits_final_model_with_passed_hyperparams(tmp_path: Path) -> None:
+    # Финализированный sweep'ом конфиг (depth=2) применяется к финальному фиту champion.
+    mlflow.set_tracking_uri(f"sqlite:///{tmp_path}/mlflow.db")
+    winner = train_trend.WinnerSelection(
+        "trend_catboost", {"roc_auc": 0.61, "roc_auc_baseline": 0.50, "accuracy": 0.62, "f1": 0.64}
+    )
+    hp = TrendHyperparams(iterations=_TINY_ITERATIONS, depth=2, l2_leaf_reg=12.0)
+
+    info = train_trend.register_champion(_settings(), winner, [_planted_frame()], hyperparams=hp)
+
+    loaded = mlflow.catboost.load_model(info.model_uri)
+    params = loaded.get_params()
+    assert params["depth"] == 2
+    assert params["l2_leaf_reg"] == pytest.approx(12.0)

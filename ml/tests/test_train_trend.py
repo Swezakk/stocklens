@@ -1,13 +1,18 @@
 """Tests for trend training orchestration (ml-spec §11, §12): winner selection via the
-ROC-AUC baseline gate and native-CatBoost champion registration."""
+ROC-AUC baseline gate, native-CatBoost champion registration, and per-ticker isolation in the
+run() loop (a degenerate ticker is skipped, the survivors still register a champion)."""
 
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 
 import mlflow.catboost
 import numpy as np
 import pandas as pd
 import pytest
+import structlog
 from stocklens_ml.config import MlSettings
+from stocklens_ml.data import loader
 from stocklens_ml.features.assemble import (
     TREND_FEATURE_COLUMNS,
     TREND_TARGET_COLUMN,
@@ -53,6 +58,36 @@ def _planted_frame(n: int = 360, nan_tail: int = 5, seed: int = _SEED) -> pd.Dat
     frame[TREND_TARGET_COLUMN] = target
     assert list(frame.columns) == [*TREND_FEATURE_COLUMNS, TREND_TARGET_COLUMN]
     return frame
+
+
+def _single_class_train_fold_frame(n: int = 360, seed: int = _SEED) -> pd.DataFrame:
+    """Фрейм, где первый expanding train-фолд одноклассовый → CatBoost.fit бросает CatBoostError.
+
+    Ранняя треть окна — единственный класс 0, дальше оба класса. Первый walk-forward train-фолд
+    видит только класс 0, и CatBoost отказывается обучаться. CatBoostError наследует Exception
+    напрямую (не ValueError) — это вырожденный тикер реального триггера T4 (тикет d2b8e5f3),
+    проверяющий, что run() ловит именно НЕ-ValueError ветку изоляции через evaluate_frame.
+    """
+    rng = np.random.default_rng(seed)
+    frame = pd.DataFrame()
+    for lag in range(5):
+        frame[f"r_lag_{lag}"] = rng.normal(size=n)
+    frame["rsi"] = rng.normal(size=n)
+    frame["macd"] = rng.normal(size=n)
+    frame["macd_signal"] = rng.normal(size=n)
+    frame["macd_hist"] = rng.normal(size=n)
+    frame["volume_zscore"] = rng.normal(size=n)
+    frame["realized_vol"] = np.abs(rng.normal(size=n))
+    target = np.ones(n)
+    target[: n // 3] = 0.0
+    target[n // 3 :] = (rng.normal(size=n - n // 3) > 0.0).astype(float)
+    frame[TREND_TARGET_COLUMN] = target
+    return frame
+
+
+def _stub_session_factory(_database_url: str) -> Callable[[], AbstractContextManager[None]]:
+    """Подмена make_session_factory: build_ticker_frame замокан, реальная сессия/БД не нужны."""
+    return lambda: nullcontext(None)
 
 
 def test_default_hyperparams_match_spec_starting_values() -> None:
@@ -214,3 +249,39 @@ def test_register_champion_fits_final_model_with_passed_hyperparams(tmp_path: Pa
     params = loaded.get_params()
     assert params["depth"] == 2
     assert params["l2_leaf_reg"] == pytest.approx(12.0)
+
+
+def test_run_skips_degenerate_ticker_and_registers_champion_from_survivors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Вырожденный тикер (одноклассовый train-фолд → CatBoostError из evaluate_frame) обязан быть
+    # пропущен и не обвалить весь прогон; champion регистрируется по выжившим (инвариант d2b8e5f3).
+    uri = f"sqlite:///{tmp_path}/mlflow.db"
+    mlflow.set_tracking_uri(uri)
+    frames_by_ticker = {
+        "GOOD1": train_trend._drop_unlabelled(_planted_frame(seed=1)),
+        "DEGENERATE": _single_class_train_fold_frame(seed=2),
+        "GOOD2": train_trend._drop_unlabelled(_planted_frame(seed=3)),
+    }
+
+    def _fake_build_ticker_frame(
+        session: object, ticker: str, settings: MlSettings
+    ) -> pd.DataFrame:
+        return frames_by_ticker[ticker]
+
+    monkeypatch.setattr(loader, "make_session_factory", _stub_session_factory)
+    monkeypatch.setattr(train_trend, "build_ticker_frame", _fake_build_ticker_frame)
+
+    with structlog.testing.capture_logs() as logs:
+        results = train_trend.run(
+            _settings(), ["GOOD1", "DEGENERATE", "GOOD2"], n_splits=3, tracking_uri=uri
+        )
+
+    # Пропущенный тикер не вносит вклада в results (skip + continue).
+    assert set(results) == {"GOOD1", "GOOD2"}
+    assert "DEGENERATE" not in results
+    skipped = [entry for entry in logs if entry["event"] == "ticker_skipped"]
+    assert any(entry["ticker"] == "DEGENERATE" for entry in skipped)
+    # Champion зарегистрирован по выжившим тикерам, несмотря на падение вырожденного.
+    champion = MlflowClient().get_model_version_by_alias(_settings().trend_model_name, "champion")
+    assert champion.version is not None

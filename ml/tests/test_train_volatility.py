@@ -1,12 +1,17 @@
 """Tests for volatility training orchestration (ml-spec §11, §12): winner selection,
-baseline gate, champion registration, MLflow logging."""
+baseline gate, champion registration, MLflow logging, and per-ticker isolation in the run()
+loop (a degenerate ticker is skipped, the survivors still register a champion)."""
 
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
+import structlog
 from stocklens_ml.config import MlSettings
+from stocklens_ml.data import loader
 from stocklens_ml.training import train_volatility
 
 import mlflow
@@ -33,6 +38,21 @@ def _feature_frame(n: int = 360, seed: int = 11) -> pd.DataFrame:
             "rv_target": squared.shift(-5).rolling(5).sum(),
         }
     )
+
+
+def _too_short_frame(seed: int = 11) -> pd.DataFrame:
+    """Слишком короткий фрейм: TimeSeriesSplit(n_splits=3, gap=horizon) бросает ValueError.
+
+    Строк меньше, чем требует expanding-сплиттер с gap=horizon, поэтому evaluate_frame падает
+    ValueError ещё до прогноза — вырожденный тикер реального триггера (тонкий/новый листинг,
+    тикет d2b8e5f3). Проверяет, что run() ловит ValueError-ветку изоляции через evaluate_frame.
+    """
+    return _feature_frame(n=6, seed=seed)
+
+
+def _stub_session_factory(_database_url: str) -> Callable[[], AbstractContextManager[None]]:
+    """Подмена make_session_factory: build_ticker_frame замокан, реальная сессия/БД не нужны."""
+    return lambda: nullcontext(None)
 
 
 def test_beats_baseline_flags_models_below_baseline_qlike() -> None:
@@ -145,3 +165,41 @@ def test_register_champion_har_fits_pooled_coefficients(tmp_path: Path) -> None:
     assert underlying.method == "har_rv"
     assert underlying.har_coef is not None
     assert len(underlying.har_coef) == 3
+
+
+def test_run_skips_degenerate_ticker_and_registers_champion_from_survivors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Вырожденный тикер (слишком короткий фрейм → ValueError из evaluate_frame) обязан быть
+    # пропущен и не обвалить весь прогон; champion регистрируется по выжившим (инвариант d2b8e5f3).
+    uri = f"sqlite:///{tmp_path}/mlflow.db"
+    mlflow.set_tracking_uri(uri)
+    frames_by_ticker = {
+        "GOOD1": _feature_frame(seed=1),
+        "DEGENERATE": _too_short_frame(seed=2),
+        "GOOD2": _feature_frame(seed=3),
+    }
+
+    def _fake_build_ticker_frame(
+        session: object, ticker: str, settings: MlSettings
+    ) -> pd.DataFrame:
+        return frames_by_ticker[ticker]
+
+    monkeypatch.setattr(loader, "make_session_factory", _stub_session_factory)
+    monkeypatch.setattr(train_volatility, "build_ticker_frame", _fake_build_ticker_frame)
+
+    with structlog.testing.capture_logs() as logs:
+        results = train_volatility.run(
+            _settings(), ["GOOD1", "DEGENERATE", "GOOD2"], n_splits=3, tracking_uri=uri
+        )
+
+    # Пропущенный тикер не вносит вклада в results (skip + continue).
+    assert set(results) == {"GOOD1", "GOOD2"}
+    assert "DEGENERATE" not in results
+    skipped = [entry for entry in logs if entry["event"] == "ticker_skipped"]
+    assert any(entry["ticker"] == "DEGENERATE" for entry in skipped)
+    # Champion зарегистрирован по выжившим тикерам, несмотря на падение вырожденного.
+    champion = MlflowClient().get_model_version_by_alias(
+        _settings().volatility_model_name, "champion"
+    )
+    assert champion.version is not None

@@ -1,7 +1,7 @@
 ---
 id: d2b8e5f3
 title: "train_trend.run()/train_volatility.run() не изолируют падение одного тикера"
-status: open
+status: resolved
 priority: medium
 component: ml
 discovered: 2026-06-26
@@ -47,3 +47,25 @@ tags: ["ml", "robustness", "training", "invariant"]
 - Паттерн изоляции для зеркалирования — `ml/src/stocklens_ml/training/tune_trend.py`
   (`evaluate_grid`, `except (ValueError, ArithmeticError, CatBoostError)`).
 - Обнаружено: T4-обучение тренда (эта сессия), [#f4a7c2e1](f4a7c2e1-trend-model-no-edge-negative-result.md).
+
+## Resolution (2026-06-26)
+
+Оба цикла `run()` теперь изолируют каждый тикер: весь per-ticker блок (`build_ticker_frame` →
+`evaluate_frame` → `log_run` → запись в `results`/`frames` → `_log.info`) обёрнут в один
+`try/except (ValueError, ArithmeticError, CatBoostError) as exc` → `_log.warning("ticker_skipped",
+ticker=ticker, reason=str(exc))` + `continue`, зеркаля канонический паттерн
+`compare_trend_models`/`tune_trend`. Пропущенный тикер не вносит вклада в `results`/`frames`;
+champion регистрируется по выжившим. Пустой `results` (все пропущены) штатно ведёт к
+`select_winner(...) is None` → `no_model_beats_baseline` (регистрации нет).
+
+- `CatBoostError` импортирован в оба тренера (`from catboost import CatBoostError`), как в
+  `compare_trend_models`.
+- `select_winner` / `register_champion` / `evaluate_frame` не менялись.
+
+Регрессионные тесты (TDD red→green):
+- `test_train_trend.py::test_run_skips_degenerate_ticker_and_registers_champion_from_survivors`
+  — вырожденный тикер с одноклассовым train-фолдом (`CatBoostError` из `evaluate_frame`)
+  пропущен, champion регистрируется по двум здоровым тикерам.
+- `test_train_volatility.py::test_run_skips_degenerate_ticker_and_registers_champion_from_survivors`
+  — слишком короткий фрейм (`ValueError` из `TimeSeriesSplit`) пропущен, champion (GARCH)
+  регистрируется по выжившим.

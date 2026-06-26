@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 import structlog
+from catboost import CatBoostError
 from mlflow.models.model import ModelInfo
 from sqlalchemy.orm import Session
 
@@ -174,19 +175,30 @@ def register_champion(
 def run(
     settings: MlSettings, tickers: list[str], n_splits: int, tracking_uri: str
 ) -> dict[str, Metrics]:
-    """Оценить тикеры, залогировать прогоны, зарегистрировать champion (если бьёт baseline)."""
+    """Оценить тикеры, залогировать прогоны, зарегистрировать champion (если бьёт baseline).
+
+    Per-ticker изоляция (зеркало tune_trend/compare_trend_models): тикер, на котором сборка фрейма
+    или evaluate_frame бросает (слишком короткий/вырожденный фрейм → ValueError из TimeSeriesSplit;
+    прочие численные сбои моделей), пропускается с логом ``ticker_skipped`` и не вносит вклада в
+    results/frames — ошибка одного тикера не валит весь retrain (инвариант проекта). Перехват
+    зеркалит канонический набор ``(ValueError, ArithmeticError, CatBoostError)`` обоих тренеров.
+    """
     mlflow.set_tracking_uri(tracking_uri)
     session_factory = loader.make_session_factory(str(settings.database_url))
     results: dict[str, Metrics] = {}
     frames: list[pd.DataFrame] = []
     for ticker in tickers:
-        with session_factory() as session:
-            frame = build_ticker_frame(session, ticker, settings)
-        metrics = evaluate_frame(frame, settings, n_splits)
-        log_run(ticker, metrics, settings, n_splits)
-        results[ticker] = metrics
-        frames.append(frame)
-        _log.info("ticker_evaluated", ticker=ticker, beats_baseline=beats_baseline(metrics))
+        try:
+            with session_factory() as session:
+                frame = build_ticker_frame(session, ticker, settings)
+            metrics = evaluate_frame(frame, settings, n_splits)
+            log_run(ticker, metrics, settings, n_splits)
+            results[ticker] = metrics
+            frames.append(frame)
+            _log.info("ticker_evaluated", ticker=ticker, beats_baseline=beats_baseline(metrics))
+        except (ValueError, ArithmeticError, CatBoostError) as exc:
+            _log.warning("ticker_skipped", ticker=ticker, reason=str(exc))
+            continue
 
     winner = select_winner(results)
     if winner is None:

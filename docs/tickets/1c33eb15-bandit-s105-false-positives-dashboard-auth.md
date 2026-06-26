@@ -1,7 +1,7 @@
 ---
 id: 1c33eb15
 title: Bandit S105 false positives on constant names in dashboard auth.py
-status: open
+status: resolved
 priority: low
 component: dashboard
 discovered: 2026-06-22
@@ -78,3 +78,37 @@ S-находки в будущем (severity inflation наоборот — по
 - [auth.py:3-5](../../services/dashboard/src/dashboard/auth.py#L3-L5) — дизайн-инвариант: секрета в коде нет
 - Bandit B105 (hardcoded_password_string) — known FP on dict-key / label / message constants
 - Коммит `06db689` — внёс строки (прошлая сессия)
+
+## Resolution (2026-06-26)
+
+Применён **путь 1** (предпочтительный). В корневой `pyproject.toml`, блок
+`[tool.ruff.lint.per-file-ignores]`, добавлена точечная запись:
+
+```toml
+"services/dashboard/src/dashboard/auth.py" = ["S105"]
+```
+
+с инлайн-комментарием, фиксирующим обоснование (документированный Bandit B105 FP: имена
+констант с `PASSWORD`/`TOKEN` при строковом литерале; значения — URL-пути, RU-копи,
+ключи `st.session_state`, не секреты). Файл `auth.py` **не изменён**, имена констант
+сохранены, проектный `select` не тронут. Проверено: `S106` на этом файле **не
+срабатывает**, поэтому в исключение добавлен только `S105`.
+
+**Эмпирическая проверка (ruff 0.15.19):**
+- До: `ruff check --select S105 services/dashboard/src/dashboard/auth.py` → **7 находок**.
+- После: та же команда → **0 находок** (`All checks passed!`). `per-file-ignores`
+  применяется независимо от способа выбора правила.
+- Штатный линт репозитория чист: `ruff check .` → `All checks passed!`;
+  `ruff format --check .` → `296 files already formatted`. Исключение для не-выбранного
+  в проектном `select` правила инертно для обычного `ruff check`, но документирует
+  намерение и удовлетворяет любой гейт, читающий проектный конфиг.
+
+**CAVEAT (честно):** проверка доказывает, что **сам ruff** уважает исключение при
+чтении проектного `pyproject.toml`. Она **не доказывает**, что внешний
+`python-security-stop-gate` его уважает: если гейт запускается с `--isolated` и
+собственным S-набором, проектный `per-file-ignores` не читается — тогда фактическое
+разрешение это **путь 3** (принять как задокументированный FP, данный тикет —
+запись-обоснование). Кроме того, `auth.py` в этой сессии не модифицировался, поэтому
+гейт здесь мог и не сработать вовсе. Acceptance criterion «гейт не сообщает S105»
+подтверждается опосредованно через ruff-конфиг; прямое подтверждение на стороне гейта
+требует прогона самого `python-security-stop-gate`.

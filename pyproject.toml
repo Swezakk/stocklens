@@ -59,6 +59,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["PLR2004"] # magic numbers допустимы в assert'ах тестов
 "ml/notebooks/**" = ["T20"] # print допустим в ноутбуках
+"services/dashboard/src/dashboard/auth.py" = ["S105"] # документированный Bandit B105 FP: имена констант с PASSWORD/TOKEN при строковом литерале; значения не секреты
 
 [tool.mypy]
 python_version = "3.12"

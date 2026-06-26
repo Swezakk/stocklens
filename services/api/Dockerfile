@@ -32,6 +32,13 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 WORKDIR /app
 
+# catboost (инференс тренда, ml-spec §8.3) требует OpenMP-рантайм libgomp.so.1, которого нет
+# в slim-образе; без него падает уже `import catboost` на старте → не поднимается весь API
+# (не только тренд). Ставим один .so — libgomp1.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /app/.venv /app/.venv
 
 EXPOSE 8000

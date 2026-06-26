@@ -39,6 +39,7 @@ def _recent_weekdays(n: int, offset_days: int = 0) -> list[date]:
 _SUMMARY_DATES = _recent_weekdays(14, offset_days=25)
 _OPTIMIZE_DATES = _recent_weekdays(15, offset_days=60)
 _OPTIMIZE_DATES_B = _recent_weekdays(15, offset_days=120)
+_OPTIMIZE_DATES_DECLINING = _recent_weekdays(20, offset_days=180)
 
 
 async def test_upsert_position_then_list_returns_it(
@@ -235,6 +236,59 @@ async def test_portfolio_optimize_min_volatility_strategy(
     assert data["fallback_reason"] is None
     weights_sum = sum(data["weights"].values())
     assert abs(weights_sum - 1.0) < 0.01, f"Сумма весов min_vol = {weights_sum}"
+
+
+async def test_portfolio_optimize_falls_back_to_min_vol_on_declining_portfolio(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """POST /portfolio/optimize с падающими ценами → 200 min_volatility (не 422).
+
+    Seed-данные: монотонно убывающие цены гарантируют mean_historical_return < 0
+    для всех бумаг, поэтому max(mu) < 0 ≤ rf (ставка 16%) → предикат
+    max_sharpe_is_feasible возвращает False → предикатный fallback на MIN_VOLATILITY.
+
+    До реализации фолбэка этот сценарий давал 422 OptimizationError.
+    Цель теста — e2e-доказательство, что пользователь получает 200 + min-vol-портфель.
+    """
+    sec_e = await seed_security(db_session, ticker="OPT_E_DEC")
+    sec_f = await seed_security(db_session, ticker="OPT_F_DEC")
+
+    start_e = Decimal("200.00")
+    start_f = Decimal("150.00")
+    for i, trade_date in enumerate(_OPTIMIZE_DATES_DECLINING):
+        price_e = start_e - Decimal(str(i * 2))
+        price_f = start_f - Decimal(str(i))
+        for sec_id, price in ((sec_e.id, price_e), (sec_f.id, price_f)):
+            candle = Candle(
+                security_id=sec_id,
+                trade_date=trade_date,
+                open=price + Decimal("1.00"),
+                high=price + Decimal("2.00"),
+                low=price - Decimal("1.00"),
+                close=price,
+                volume=1_000_000,
+                value=price * Decimal("1000000"),
+                is_weekend_session=False,
+            )
+            db_session.add(candle)
+
+    await seed_index_values_range(db_session, _OPTIMIZE_DATES_DECLINING)
+    await seed_key_rate(db_session, rate_date=_OPTIMIZE_DATES_DECLINING[0])
+    await db_session.commit()
+
+    resp = await client.post(
+        "/api/v1/portfolio/optimize",
+        json={"tickers": ["OPT_E_DEC", "OPT_F_DEC"], "period_days": 365},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+
+    assert data["requested_strategy"] == "max_sharpe"
+    assert data["strategy"] == "min_volatility"
+    assert data["fallback_reason"] is not None
+    assert len(data["fallback_reason"]) > 0
+    weights_sum = sum(data["weights"].values())
+    assert abs(weights_sum - 1.0) < 0.01, f"Сумма весов min_vol fallback = {weights_sum}"
 
 
 async def test_portfolio_optimize_single_ticker_returns_422(

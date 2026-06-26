@@ -36,3 +36,14 @@ discovered-from: [m3-forecasts-page]
 - [ ] Дашборд: секция «Тренд» на странице «Прогнозы» — `P(up)` доверительной подачей
       (не «сигнал»), SHAP-bar, направление; три ветки сетевого вызова.
 - [ ] Снять статичную строку `_render_trend_note`; обновить DESIGN.md §10.4 + ml-spec §10.
+
+## Update (2026-06-26, фазы T1–T4)
+
+- [x] `POST /predict/trend` → `prob_up` + `shap` (list[ShapContribution], additivity) +
+      `direction` реализован; загрузка нативного CatBoost в `ModelBundle` (lifespan),
+      readiness-гейт — тренд неблокирующий. Serving **код-комплит** (T2).
+- [ ] Обучение/регистрация — **trend-модель не имеет edge**: walk-forward + гиперпоиск на
+      прод-данных дали mean ROC-AUC ≈ 0.49 (< 0.5), baseline-гейт корректно НЕ зарегистрировал.
+      См. [#f4a7c2e1](f4a7c2e1-trend-model-no-edge-negative-result.md). Активация (реестр →
+      `production` → деплой → дашборд) **отложена** до sentiment-фичи + достаточной глубины
+      новостей. Заглушка `_render_trend_note` остаётся честной.

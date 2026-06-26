@@ -60,6 +60,7 @@ ignore = [
 "**/tests/**" = ["PLR2004"] # magic numbers допустимы в assert'ах тестов
 "ml/notebooks/**" = ["T20"] # print допустим в ноутбуках
 "services/dashboard/src/dashboard/auth.py" = ["S105"] # документированный Bandit B105 FP: имена констант с PASSWORD/TOKEN при строковом литерале; значения не секреты
+"services/api/tests/integration/test_mlflow_registry_smoke.py" = ["S106"] # эфемерный пароль тест-контейнера PostgreSQL; должен совпадать с psycopg2 backend-URI MLflow-сервера, не секрет
 
 [tool.mypy]
 python_version = "3.12"

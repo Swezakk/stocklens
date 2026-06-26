@@ -1,0 +1,87 @@
+<mxGraphModel dx="1200" dy="700" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1180" pageHeight="600" math="0" shadow="0" background="#0d1117">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="title" value="StockLens — архитектура (C4 Container)" style="text;html=1;fontColor=#e6edf3;fontSize=20;fontStyle=1;align=left;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="40" y="24" width="500" height="36" as="geometry"/>
+    </mxCell>
+    <mxCell id="subtitle" value="аналитика рынка MOEX: сбор → аналитика/ML → дашборд + Telegram-бот" style="text;html=1;fontColor=#8b949e;fontSize=12;align=left;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="40" y="58" width="560" height="20" as="geometry"/>
+    </mxCell>
+    <mxCell id="compose" value="StockLens · Docker Compose" style="rounded=1;arcSize=4;fillColor=none;strokeColor=#2dd4bf;dashed=1;dashPattern=8 6;fontColor=#2dd4bf;fontSize=13;fontStyle=1;verticalAlign=top;align=left;spacingLeft=12;spacingTop=8;html=1;" vertex="1" parent="1">
+      <mxGeometry x="230" y="100" width="700" height="470" as="geometry"/>
+    </mxCell>
+    <mxCell id="moex" value="MOEX ISS API&#10;котировки, дивиденды, индекс" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#30363d;strokeColor=#8b949e;fontColor=#e6edf3;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="40" y="150" width="150" height="56" as="geometry"/>
+    </mxCell>
+    <mxCell id="rss" value="RSS&#10;РБК · Коммерсантъ · Интерфакс" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#30363d;strokeColor=#8b949e;fontColor=#e6edf3;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="40" y="240" width="150" height="56" as="geometry"/>
+    </mxCell>
+    <mxCell id="cbr" value="ЦБ РФ&#10;курсы валют, ключевая ставка" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#30363d;strokeColor=#8b949e;fontColor=#e6edf3;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="40" y="330" width="150" height="56" as="geometry"/>
+    </mxCell>
+    <mxCell id="ingestor" value="ingestor&#10;APScheduler · sync&#10;сбор + sentiment + backfill" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1f6feb;strokeColor=#0d419d;fontColor=#ffffff;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="260" y="240" width="160" height="76" as="geometry"/>
+    </mxCell>
+    <mxCell id="db" value="db&#10;PostgreSQL 16" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#6e40c9;strokeColor=#4c2889;fontColor=#ffffff;fontSize=12;fontStyle=1;boundedLbl=1;" vertex="1" parent="1">
+      <mxGeometry x="490" y="130" width="140" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="redis" value="redis&#10;кэш" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#6e40c9;strokeColor=#4c2889;fontColor=#ffffff;fontSize=12;fontStyle=1;boundedLbl=1;" vertex="1" parent="1">
+      <mxGeometry x="680" y="130" width="120" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="api" value="api&#10;FastAPI · async&#10;REST /api/v1 + ML-инференс" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1f6feb;strokeColor=#0d419d;fontColor=#ffffff;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="470" y="280" width="180" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="mlflow" value="mlflow&#10;реестр моделей + трекинг" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1f6feb;strokeColor=#0d419d;fontColor=#ffffff;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="700" y="290" width="160" height="70" as="geometry"/>
+    </mxCell>
+    <mxCell id="dashboard" value="dashboard&#10;Streamlit · 6 страниц" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1f6feb;strokeColor=#0d419d;fontColor=#ffffff;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="290" y="440" width="160" height="70" as="geometry"/>
+    </mxCell>
+    <mxCell id="bot" value="bot&#10;aiogram · алерты + дайджест" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1f6feb;strokeColor=#0d419d;fontColor=#ffffff;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="560" y="440" width="180" height="70" as="geometry"/>
+    </mxCell>
+    <mxCell id="investor" value="Инвестор&#10;владелец" style="shape=umlActor;whiteSpace=wrap;html=1;fillColor=#238636;strokeColor=#196c2e;fontColor=#e6edf3;fontSize=12;fontStyle=1;verticalLabelPosition=bottom;verticalAlign=top;" vertex="1" parent="1">
+      <mxGeometry x="1000" y="150" width="70" height="90" as="geometry"/>
+    </mxCell>
+    <mxCell id="telegram" value="Telegram&#10;Bot API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#30363d;strokeColor=#8b949e;fontColor=#e6edf3;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="985" y="445" width="120" height="56" as="geometry"/>
+    </mxCell>
+    <mxCell id="e1" value="котировки" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#2dd4bf;fontColor=#c9d1d9;labelBackgroundColor=#0d1117;endArrow=block;fontSize=10;" edge="1" parent="1" source="moex" target="ingestor">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e2" value="новости" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#2dd4bf;fontColor=#c9d1d9;labelBackgroundColor=#0d1117;endArrow=block;fontSize=10;" edge="1" parent="1" source="rss" target="ingestor">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e3" value="курсы" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#2dd4bf;fontColor=#c9d1d9;labelBackgroundColor=#0d1117;endArrow=block;fontSize=10;" edge="1" parent="1" source="cbr" target="ingestor">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e4" value="upsert" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#2dd4bf;fontColor=#c9d1d9;labelBackgroundColor=#0d1117;endArrow=block;fontSize=10;" edge="1" parent="1" source="ingestor" target="db">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e5" value="R/W async" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#2dd4bf;fontColor=#c9d1d9;labelBackgroundColor=#0d1117;endArrow=block;fontSize=10;" edge="1" parent="1" source="api" target="db">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e6" value="кэш" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#2dd4bf;fontColor=#c9d1d9;labelBackgroundColor=#0d1117;endArrow=block;fontSize=10;" edge="1" parent="1" source="api" target="redis">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e7" value="load@production" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#2dd4bf;fontColor=#c9d1d9;labelBackgroundColor=#0d1117;endArrow=block;fontSize=10;" edge="1" parent="1" source="api" target="mlflow">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e8" value="HTTP /api/v1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#58a6ff;fontColor=#c9d1d9;labelBackgroundColor=#0d1117;endArrow=block;fontSize=10;" edge="1" parent="1" source="dashboard" target="api">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e9" value="HTTP /api/v1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#58a6ff;fontColor=#c9d1d9;labelBackgroundColor=#0d1117;endArrow=block;fontSize=10;" edge="1" parent="1" source="bot" target="api">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e10" value="алерты, дайджест" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#2dd4bf;fontColor=#c9d1d9;labelBackgroundColor=#0d1117;endArrow=block;fontSize=10;" edge="1" parent="1" source="bot" target="telegram">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e11" value="уведомления" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#2dd4bf;fontColor=#c9d1d9;labelBackgroundColor=#0d1117;endArrow=block;fontSize=10;" edge="1" parent="1" source="telegram" target="investor">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="e12" value="HTTPS · дашборд" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#238636;fontColor=#c9d1d9;labelBackgroundColor=#0d1117;endArrow=block;fontSize=10;exitX=0;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="1" source="investor" target="dashboard">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>

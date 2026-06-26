@@ -45,3 +45,6 @@ mlartifacts/
 
 # Кэш ONNX-модели для тестов sentiment (экспортируется conftest-фикстурой)
 .pytest-onnx-cache/
+
+# Playwright MCP транзиентный скретч (снимки/логи браузера)
+.playwright-mcp/
